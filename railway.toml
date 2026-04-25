@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+buildCommand = "go build -o bot main_go3.go"
+
+[deploy]
+startCommand = "./bot"
+healthcheckPath = "/"
+restartPolicyType = "always"
+
+[service]
+port = 8080

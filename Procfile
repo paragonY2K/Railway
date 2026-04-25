@@ -1,0 +1,1 @@
+worker: go run main_go3.go
