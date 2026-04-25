@@ -3700,12 +3700,16 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	switch data {
 	case "menu_main":
+		if !isSubscribed(chatID) {
+			bot.Send(tgbotapi.NewCallback(callback.ID, "❌ Subscribe first!"))
+			return
+		}
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "*🔥 TYPHOON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
 		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = getMainMenuKeyboard()
 		bot.Send(msg)
-
+		
 	case "menu_hwid":
 		hwid := getHWID()
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("*🆔 Your Hardware ID*\n━━━━━━━━━━━━━━━━━━━━\n\n`%s`\n\n━━━━━━━━━━━━━━━━━━━━\n\n_Provide this ID for license activation_", hwid))
@@ -3863,10 +3867,17 @@ func handleMessage(update tgbotapi.Update) {
 	if isBanned(chatID) {
 		return
 	}
+	
+	if !isSubscribed(chatID) {
+		msg := tgbotapi.NewMessage(chatID, "❌ Subscribe to @supremebughost first! Use /start")
+		bot.Send(msg)
+		return
+	}
 
 	session := getSession(chatID)
 
 	switch session.State {
+	
 	case "awaiting_single_target":
 		if text != "" {
 			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Target set: `%s`\n⏳ Starting scan in background...", escapeMarkdownV2(text)))
