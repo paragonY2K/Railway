@@ -150,9 +150,10 @@ func isBanned(chatID int64) bool {
 func isSubscribed(chatID int64) bool {
 	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
 		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
-			ChatID: "@supremebughost",
-			UserID: int(chatID),
+			ChatID: chatID,
+			UserID: chatID,
 		},
+		SuperGroupUsername: "@supremebughost",
 	})
 	if err != nil {
 		return false
