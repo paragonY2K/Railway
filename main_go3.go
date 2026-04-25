@@ -33,7 +33,6 @@ import (
 
 var proxyURL = "https://corsproxy.io/?"
 
-// ==================== USER MANAGEMENT ====================
 var (
 	adminChatID  int64 = 107410007
 	userData           = &UserData{Users: make(map[int64]*UserInfo)}
@@ -44,12 +43,6 @@ var (
 // ==================== LOGGING INIT ====================
 
 func initLogger() {
-	// ============================================================
-	// RAILWAY: Log to stdout (captured automatically)
-	// + Optional file backup in /tmp
-	// ============================================================
-	
-	// Create log directory in /tmp (Railway writable)
 	logDir := "/tmp/typhoon_logs"
 	os.MkdirAll(logDir, 0755)
 
@@ -2596,6 +2589,23 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 	sb.WriteString(fmt.Sprintf("   ⚠️ MEDI: `%d` (CDN Host - Limited Use)\n", finalMedium))
 	sb.WriteString(fmt.Sprintf("   ❌ WEAK: `%d` (Not Usable)\n\n", finalWeak))
 
+	sort.Slice(finalTopTargets, func(i, j int) bool {
+		pi := priorityToRank(finalTopTargets[i]["priority"])
+		pj := priorityToRank(finalTopTargets[j]["priority"])
+		if pi != pj {
+			return pi > pj
+		}
+		ti := finalTopTargets[i]["tag"]
+		tj := finalTopTargets[j]["tag"]
+		if ti == "H3_QUIC" {
+			return true
+		}
+		if tj == "H3_QUIC" {
+			return false
+		}
+		return false
+	})
+
 	if len(finalTopTargets) > 0 {
 		sb.WriteString("*🏆 Top 10 Targets:*\n")
 		shown := make(map[string]bool)
@@ -4016,27 +4026,51 @@ func handleUsersCommand(update tgbotapi.Update) {
 func handleUserListCommand(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 	if chatID != adminChatID {
-		return  // Senyap
+		return
 	}
 	
 	umMutex.RLock()
 	defer umMutex.RUnlock()
 	
+	// Convert map to slice for sorting
+	type userEntry struct {
+		ID     int64
+		Info   *UserInfo
+	}
+	var users []userEntry
+	for id, u := range userData.Users {
+		users = append(users, userEntry{ID: id, Info: u})
+	}
+	
+	sort.Slice(users, func(i, j int) bool {
+		if users[i].Info.Banned != users[j].Info.Banned {
+			return !users[i].Info.Banned // Active users first
+		}
+		return users[i].Info.Scans > users[j].Info.Scans // Most scans first
+	})
+	
 	var sb strings.Builder
 	sb.WriteString("*📋 User List*\n━━━━━━━━━━━━━━━━━━━━\n\n")
 	
-	i := 0
-	for id, u := range userData.Users {
-		if i >= 50 { break }
+	limit := 50
+	if len(users) < limit {
+		limit = len(users)
+	}
+	
+	for i := 0; i < limit; i++ {
+		u := users[i]
 		status := "✅"
-		if u.Banned { status = "🚫" }
-		name := u.FirstName
-		if u.Username != "" {
-			name = "@" + u.Username
+		if u.Info.Banned { status = "🚫" }
+		name := u.Info.FirstName
+		if u.Info.Username != "" {
+			name = "@" + u.Info.Username
 		}
 		sb.WriteString(fmt.Sprintf("%s %s | `%d` | %d scans\n", 
-			status, name, id, u.Scans))
-		i++
+			status, name, u.ID, u.Info.Scans))
+	}
+	
+	if len(users) > 50 {
+		sb.WriteString(fmt.Sprintf("\n_...and %d more_", len(users)-50))
 	}
 	
 	bot.Send(tgbotapi.NewMessage(chatID, sb.String()))
