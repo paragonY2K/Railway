@@ -148,17 +148,21 @@ func isBanned(chatID int64) bool {
 }
 
 func isSubscribed(chatID int64) bool {
+	if chatID == adminChatID {
+		return true
+	}
+	
 	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
 		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
 			UserID: chatID,
-			ChatID: -1002250412947, // @supremebughost
+			ChatID: -1002250412947,
 		},
 	})
 	if err != nil {
-		log.Printf("❌ isSubscribed error for %d: %v", chatID, err)
+		fmt.Printf("❌ isSubscribed error for %d: %v\n", chatID, err)
 		return false
 	}
-	log.Printf("✅ User %d status in channel: %s", chatID, member.Status)
+	fmt.Printf("✅ User %d status: '%s'\n", chatID, member.Status)
 	return member.Status == "member" || member.Status == "creator" || member.Status == "administrator"
 }
 
@@ -3360,7 +3364,7 @@ func handleStart(update tgbotapi.Update) {
 	}
 
 	hwid := getHWID()
-	banner := "🔥 PARAGON SNI PRO " + version + "\n"
+	banner := "🔥 TYPHOON SNI PRO " + version + "\n"
 	banner += "━━━━━━━━━━━━━━━━━━━━\n"
 	banner += "Developer: @" + author + "\n"
 	banner += "HWID: " + hwid + "\n"
@@ -3694,13 +3698,18 @@ func handleCallbackQuery(update tgbotapi.Update) {
 	if isBanned(chatID) {
 		bot.Send(tgbotapi.NewCallback(callback.ID, "🚫 Banned"))
 		return
-	}	
+	}
+
+	if !isSubscribed(chatID) {
+		bot.Send(tgbotapi.NewCallback(callback.ID, "❌ Join @supremebughost first!"))
+		return
+	}
 
 	fmt.Printf("🔥 Callback received: data=%s from chatID=%d\n", data, chatID)
-
 	bot.Send(tgbotapi.NewCallback(callback.ID, ""))
 
 	switch data {
+	// ... semua case sama ...
 	case "menu_main":
 		if !isSubscribed(chatID) {
 			bot.Send(tgbotapi.NewCallback(callback.ID, "❌ Subscribe first!"))
@@ -3869,7 +3878,7 @@ func handleMessage(update tgbotapi.Update) {
 	if isBanned(chatID) {
 		return
 	}
-	
+
 	if !isSubscribed(chatID) {
 		msg := tgbotapi.NewMessage(chatID, "❌ Subscribe to @supremebughost first! Use /start")
 		bot.Send(msg)
