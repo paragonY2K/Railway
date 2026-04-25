@@ -148,20 +148,16 @@ func isBanned(chatID int64) bool {
 }
 
 func isSubscribed(chatID int64) bool {
-	config := tgbotapi.GetChatMemberConfig{
-		SuperGroupUsername: "@supremebughost",
+	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
 		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
 			UserID: chatID,
+			SuperGroupUsername: "@supremebughost",
 		},
-	}
-	member, err := bot.GetChatMember(config)
+	})
 	if err != nil {
 		return false
 	}
-	if member.Status == "member" || member.Status == "creator" || member.Status == "administrator" {
-		return true
-	}
-	return false
+	return member.Status == "member" || member.Status == "creator" || member.Status == "administrator"
 }
 
 func getAdminID() int64 {
