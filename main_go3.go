@@ -147,6 +147,19 @@ func isBanned(chatID int64) bool {
 	return false
 }
 
+func isSubscribed(chatID int64) bool {
+	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
+		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
+			ChatID: "@supremebughost",
+			UserID: int(chatID),
+		},
+	})
+	if err != nil {
+		return false
+	}
+	return member.IsMember() || member.IsCreator() || member.IsAdministrator()
+}
+
 func getAdminID() int64 {
 	return adminChatID
 }
@@ -3323,9 +3336,29 @@ func sendTyping(chatID int64) {
 
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
-	hwid := getHWID()
 
-	banner := "🔥 TYPHOON SNI PRO " + version + "\n"
+	if !isSubscribed(chatID) {
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("🔊 Join @supremebughost", "https://t.me/supremebughost"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ I've Joined", "check_subscription"),
+			),
+		)
+
+		msg := tgbotapi.NewMessage(chatID,
+			"👋 *Welcome to Typhoon SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+				"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n"+
+				"👉 Click below to join, then press the button to start.")
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = &keyboard
+		bot.Send(msg)
+		return
+	}
+
+	hwid := getHWID()
+	banner := "🔥 PARAGON SNI PRO " + version + "\n"
 	banner += "━━━━━━━━━━━━━━━━━━━━\n"
 	banner += "Developer: @" + author + "\n"
 	banner += "HWID: " + hwid + "\n"
@@ -3333,8 +3366,27 @@ func handleStart(update tgbotapi.Update) {
 	banner += "━━━━━━━━━━━━━━━━━━━━\n\n"
 	banner += "Select an option:"
 
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Single Scan", "menu_single"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Mass Scan", "menu_mass"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🌐 CIDR Scan", "menu_cidr"),
+			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
+			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
+			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
+		),
+	)
+
 	msg := tgbotapi.NewMessage(chatID, banner)
-	msg.ReplyMarkup = getMainMenuKeyboard()
+	msg.ReplyMarkup = &keyboard
 	bot.Send(msg)
 }
 
@@ -3719,7 +3771,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			return
 		}
 
-		// 1. Hantar mesej status dulu untuk dapatkan MessageID
 		statusMsg := tgbotapi.NewMessage(chatID, "🚀 *Initializing Turbo Mass Scan...*")
 		statusMsg.ParseMode = "Markdown"
 		sentMsg, err := bot.Send(statusMsg)
@@ -3729,7 +3780,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			return
 		}
 
-		// 2. Pass sentMsg.MessageID ke function turbo kita (BUKAN 0)
 		go executeMassScan(chatID, sentMsg.MessageID, hosts, []int{443, 80, 8080})
 		clearSessionState(chatID)
 
@@ -3743,12 +3793,10 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			return
 		}
 
-		// DEFINE ports
 		ports := []int{443, 80}
 
 		_, ipnet, _ := net.ParseCIDR(cidr)
 
-		// HANTAR status message dan SIMPAN message ID
 		statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🚀 *CIDR Scan Started*\n🎯 Target: `%s`\n🔍 Ports: %v", cidr, ports))
 		statusMsg.ParseMode = "Markdown"
 
@@ -3758,7 +3806,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			return
 		}
 
-		// CALL dengan 5 parameters (semua dah ada)
 		go executeCIDRScan(chatID, sentMsg.MessageID, cidr, ipnet, ports)
 
 		clearSessionState(chatID)
@@ -3769,6 +3816,37 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = getMainMenuKeyboard()
 		bot.Send(msg)
+		
+	case "check_subscription":
+	    if isSubscribed(chatID) {
+		bot.Send(tgbotapi.NewCallback(callback.ID, "✅ Verified! Welcome aboard!"))
+		
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Single Scan", "menu_single"),
+				tgbotapi.NewInlineKeyboardButtonData("📊 Mass Scan", "menu_mass"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🌐 CIDR Scan", "menu_cidr"),
+				tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
+				tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
+				tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
+			),
+		)
+		
+		msg := tgbotapi.NewMessage(chatID, "*🔥 TYPHOON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
+		msg.ParseMode = "MarkdownV2"
+		msg.ReplyMarkup = &keyboard
+		bot.Send(msg)
+	} else {
+		bot.Send(tgbotapi.NewCallback(callback.ID, "❌ Not yet! Please join @supremebughost first."))
+	}
 
 	default:
 		msg := tgbotapi.NewMessage(chatID, "Unknown option. Use /start")
@@ -3947,8 +4025,8 @@ func handleUserListCommand(update tgbotapi.Update) {
 // =============================================================================
 
 func main() {
-  loadUserData()
-  
+	loadUserData()
+
 	// License bypass
 	if !SupremeVerify() {
 		fmt.Println("License verification failed. Exiting.")
@@ -3995,9 +4073,6 @@ func main() {
 		fmt.Println("✅ Webhook cleared")
 	}()
 
-	// ==========================================
-	// RAILWAY HEALTH CHECK HTTP SERVER
-	// ==========================================
 	go func() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(200)
@@ -4048,6 +4123,14 @@ func main() {
 
 		if update.Message != nil {
 			if update.Message.IsCommand() {
+				if update.Message.Command() != "start" && !isSubscribed(update.Message.Chat.ID) {
+					if update.Message.Chat.ID != adminChatID {
+						msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Subscribe to @supremebughost first! Use /start")
+						bot.Send(msg)
+						continue
+					}
+				}
+
 				switch update.Message.Command() {
 				case "start":
 					handleStart(update)
@@ -4056,13 +4139,13 @@ func main() {
 				case "about":
 					handleAbout(update)
 				case "ban":
-                    handleBanCommand(update)
-                case "unban":
-                    handleUnbanCommand(update)
-                case "users", "stats":
-                    handleUsersCommand(update)
-                case "userlist":
-                    handleUserListCommand(update)
+					handleBanCommand(update)
+				case "unban":
+					handleUnbanCommand(update)
+				case "users", "stats":
+					handleUsersCommand(update)
+				case "userlist":
+					handleUserListCommand(update)
 				case "cancel":
 					clearSessionState(update.Message.Chat.ID)
 					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "❌ Cancelled. Back to menu.")
