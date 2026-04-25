@@ -151,12 +151,14 @@ func isSubscribed(chatID int64) bool {
 	member, err := bot.GetChatMember(tgbotapi.GetChatMemberConfig{
 		ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
 			UserID: chatID,
-			SuperGroupUsername: "@supremebughost",
+			ChatID: -1002250412947, // @supremebughost
 		},
 	})
 	if err != nil {
+		log.Printf("❌ isSubscribed error for %d: %v", chatID, err)
 		return false
 	}
+	log.Printf("✅ User %d status in channel: %s", chatID, member.Status)
 	return member.Status == "member" || member.Status == "creator" || member.Status == "administrator"
 }
 
