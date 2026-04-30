@@ -105,10 +105,10 @@ func showQuickTestPrompt(chatID int64, messageID int) {
 		"Send your config:\n\n" +
 		"Format: proxy:port|sni|payload|target\n\n" +
 		"Examples:\n" +
-		"• thecarstuff.com:80 (proxy only)\n" +
-		"• thecarstuff.com:80|nexus.u.com.my (proxy+sni)\n" +
+		"• thebestyou.com:80 (proxy only)\n" +
+		"• thebestyou.com:80|nexus.u.com.my (proxy+sni)\n" +
 		"• -|nexus.u.com.my|GET /... (sni+payload)\n" +
-		"• thecarstuff.com:80|-|-|vps.com (proxy+target)\n\n" +
+		"• thebestyou.com:80|-|-|vps.com (proxy+target)\n\n" +
 		"Use '-' to skip a field\n```"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -188,7 +188,7 @@ func showStepPrompt(chatID int64, messageID int, step int, config UserConfig) {
 
 	switch step {
 	case 1:
-		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 1: PROXY HOST   │\n╰─────────────────────────╯\n\nEnter proxy host:port\n\nExample: thecarstuff.com:80\nOr type '-' to skip\n```"
+		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 1: PROXY HOST   │\n╰─────────────────────────╯\n\nEnter proxy host:port\n\nExample: thebestyou.com:80\nOr type '-' to skip\n```"
 		state = "config_step_proxy"
 
 	case 2:
@@ -299,7 +299,9 @@ func handleStepInput(chatID int64, messageID int, input string) {
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Saved!\n\n📋 Current: %s", summary))
 	bot.Send(statusMsg)
 
-	showStepPrompt(chatID, 0, step, config)
+	// FIX: Hantar placeholder dulu untuk dapat messageID valid
+	sentMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "⏳ Loading next step..."))
+	showStepPrompt(chatID, sentMsg.MessageID, step, config)
 }
 
 func executeStepValidation(chatID int64, messageID int, config UserConfig) {

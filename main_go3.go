@@ -3883,11 +3883,9 @@ func handleStart(update tgbotapi.Update) {
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	// ASCII PARAGON (Mobile Optimized)
 	mainMenu := "<code>" +
-		"╔═╗╔═╗╦═╗╔═╗╔═╗╔═╗╔╗╔\n" +
-		"╠═╝╠═╣╠╦╝╠═╣║ ╦║ ║║║║\n" +
-		"╩  ╩ ╩╩╚═╩ ╩╚═╝╚═╝╝╚╝</code>\n" +
+		"█▀█ ▄▀█ █▀█ ▄▀█ █▀▀ █▄█ █▄░█\n" +
+		"█▀▀ █▀█ █▀▄ █▀█ █▄█ █▄█ █░▀█</code>\n" +
 		"<b>⚡ PARAGON SNI PRO</b>\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"<b>Version:</b> <code>" + safeVersion + "</code>\n" +
@@ -3949,12 +3947,16 @@ func handleAbout(update tgbotapi.Update) {
 		chatID = update.CallbackQuery.Message.Chat.ID
 	}
 
-	// Design ni guna tag HTML:
-	// <b> = Bold
-	// <code> = Monospace (font nampak macam terminal/code)
-	// <i> = Italic
+	// Escape variables untuk elak crash
+	safeVersion := html.EscapeString(version)
+	safeAuthor := html.EscapeString(author)
+
+	// ASCII PARAGON yang tebal dan senang baca
 	about := fmt.Sprintf(
-		"<b>⚡ PARAGON SNI PRO %s</b>\n"+
+		"<code>"+
+			"█▀█ ▄▀█ █▀█ ▄▀█ █▀▀ █▄█ █▄░█\n"+
+			"█▀▀ █▀█ █▀▄ █▀█ █▄█ █▄█ █░▀█</code>\n"+
+			"<b>⚡ PARAGON SNI PRO %s</b>\n"+
 			"<i>Advanced Network Reconnaissance Tool</i>\n"+
 			"━━━━━━━━━━━━━━━━━━━━\n"+
 			"<b>👤 Developer:</b> <code>%s</code>\n"+
@@ -3967,16 +3969,15 @@ func handleAbout(update tgbotapi.Update) {
 			"• <code>Subdomain</code> Enumeration\n"+
 			"• <code>CIDR</code> Mass Scanning\n"+
 			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"<i>Powered by Paragon</i>",
-		version, author)
+			"<i>Powered by Paragon Community</i>",
+		safeVersion, safeAuthor)
 
 	msg := tgbotapi.NewMessage(chatID, about)
-	msg.ParseMode = "HTML" // Pakai HTML supaya tak crash di Railway
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
 
 	_, err := bot.Send(msg)
 	if err != nil {
-		// Log error ke terminal Railway kalau hantar mesej gagal
 		log.Printf("Error sending About: %v", err)
 	}
 }
@@ -4235,6 +4236,9 @@ func executeSingleScan(chatID int64, target string) {
 	case <-ctx.Done():
 		updateStatus(chatID, msgID, "❌ *Scan Timeout*")
 	}
+	session := getSession(chatID)
+	session.TempData["last_scan_target"] = target
+
 	clearSessionState(chatID)
 }
 
