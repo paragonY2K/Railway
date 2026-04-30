@@ -499,6 +499,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 	var conn net.Conn
 	var lat int
 	var err error
+	var connectedIP string
 
 	connectHost := config.ProxyHost
 	connectPort := config.ProxyPort
@@ -539,12 +540,21 @@ func validateUserConfig(config UserConfig) FullValidation {
 		return result
 	}
 
+	// Capture connected IP
+	if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		connectedIP = tcpAddr.IP.String()
+	}
+
 	step.Success = true
 	step.Message = fmt.Sprintf("✅ Connected to %s:%d (%dms)", connectHost, connectPort, lat)
 	result.Steps = append(result.Steps, step)
 	defer conn.Close()
 
+	// =============================================
+	// TLS/SNI ANALYSIS
+	// =============================================
 	tlsStep := ValidationResult{Step: "TLS/SNI"}
+	var certCN string
 
 	if tlsConn, ok := conn.(*tls.Conn); ok {
 		state := tlsConn.ConnectionState()
@@ -559,7 +569,8 @@ func validateUserConfig(config UserConfig) FullValidation {
 		if len(state.PeerCertificates) > 0 {
 			cert := state.PeerCertificates[0]
 			if cert.Subject.CommonName != "" {
-				tlsStep.Details += fmt.Sprintf(" | CN: %s", cert.Subject.CommonName)
+				certCN = cert.Subject.CommonName
+				tlsStep.Details += fmt.Sprintf(" | CN: %s", certCN)
 			}
 		}
 	} else {
@@ -568,6 +579,29 @@ func validateUserConfig(config UserConfig) FullValidation {
 	}
 	result.Steps = append(result.Steps, tlsStep)
 
+	// =============================================
+	// SNI vs CN MATCH CHECK (NEW!)
+	// =============================================
+	if config.SNI != "" && certCN != "" {
+		sniMatchStep := ValidationResult{Step: "SNI vs Certificate"}
+
+		sniClean := strings.ToLower(strings.ReplaceAll(config.SNI, "*.", ""))
+		cnClean := strings.ToLower(strings.ReplaceAll(certCN, "*.", ""))
+
+		if sniClean == cnClean || strings.Contains(cnClean, sniClean) || strings.Contains(sniClean, cnClean) {
+			sniMatchStep.Success = true
+			sniMatchStep.Message = fmt.Sprintf("✅ SNI matches certificate (%s)", certCN)
+		} else {
+			sniMatchStep.Success = true // Still success, but with warning
+			sniMatchStep.Message = fmt.Sprintf("🎭 SNI SPOOF! SNI: %s → CN: %s (spoof works!)", config.SNI, certCN)
+			sniMatchStep.Details = "Server accepts different SNI — potential bughost!"
+		}
+		result.Steps = append(result.Steps, sniMatchStep)
+	}
+
+	// =============================================
+	// PAYLOAD INJECTION
+	// =============================================
 	if config.Payload != "" {
 		payloadStep := ValidationResult{Step: "Payload Injection"}
 		start := time.Now()
@@ -591,7 +625,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 		payload = strings.ReplaceAll(payload, "[port]", portStr)
 		payload = strings.ReplaceAll(payload, "[ua]", randomUA())
 		payload = strings.ReplaceAll(payload, "[vps]", config.TargetHost)
-		payload = strings.ReplaceAll(payload, "[ip]", "")
+		payload = strings.ReplaceAll(payload, "[ip]", connectedIP)
 
 		conn.SetDeadline(time.Now().Add(6 * time.Second))
 		_, writeErr := conn.Write([]byte(payload))
@@ -601,7 +635,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 			result.Success = false
 			result.Steps = append(result.Steps, payloadStep)
 			result.Summary = "Payload write failed."
-			result.Score = 30
+			result.Score = 25
 			return result
 		}
 
@@ -666,7 +700,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 				payloadStep.Message = fmt.Sprintf("🔥 WebSocket 101 (%dms)", payloadStep.LatencyMs)
 			case payloadStep.StatusCode >= 300 && payloadStep.StatusCode < 400:
 				payloadStep.Success = true
-				payloadStep.Message = fmt.Sprintf("⚠️ Redirect %d (%dms)", payloadStep.StatusCode, payloadStep.LatencyMs)
+				payloadStep.Message = fmt.Sprintf("⚠️ Redirect %d — server alive (%dms)", payloadStep.StatusCode, payloadStep.LatencyMs)
 			case payloadStep.StatusCode == 403:
 				payloadStep.Success = true
 				payloadStep.Message = fmt.Sprintf("⚠️ WAF Block 403 (%dms)", payloadStep.LatencyMs)
@@ -699,18 +733,21 @@ func validateUserConfig(config UserConfig) FullValidation {
 		result.Steps = append(result.Steps, ValidationResult{
 			Step:    "Payload Injection",
 			Success: true,
-			Message: "⏭️ Skipped (no payload)",
+			Message: "⏭️ Skipped (no payload) — add payload for full test",
 		})
 	}
 
+	// =============================================
+	// CDN DETECTION (ENHANCED WITH IP CHECK)
+	// =============================================
 	cdnStep := ValidationResult{Step: "CDN Detection"}
 	cdnFound := false
 
+	// First check response headers
 	for _, s := range result.Steps {
 		if s.CFRay != "" {
 			cdnStep.Success = true
-			cdnStep.Message = "☁️ Cloudflare CDN detected"
-			cdnStep.Details = "CF-RAY: " + s.CFRay
+			cdnStep.Message = "☁️ Cloudflare CDN (CF-RAY: " + s.CFRay + ")"
 			cdnFound = true
 			break
 		}
@@ -728,32 +765,89 @@ func validateUserConfig(config UserConfig) FullValidation {
 		}
 	}
 
-	if !cdnFound {
-		cdnStep.Success = true
-		cdnStep.Message = "⚠️ No CDN signature detected"
-	}
-	result.Steps = append(result.Steps, cdnStep)
-
-	passed := 0
-	total := 0
-	for _, s := range result.Steps {
-		total++
-		if s.Success {
-			passed++
+	// If not found from headers, try IP detection
+	if !cdnFound && connectedIP != "" {
+		cdnFromIP := detectCDNByIP(connectedIP)
+		if cdnFromIP != "" {
+			cdnStep.Success = true
+			cdnStep.Message = fmt.Sprintf("🌐 CDN from IP: %s (%s)", cdnFromIP, connectedIP)
+			cdnFound = true
 		}
 	}
 
-	if total > 0 {
-		result.Score = passed * 100 / total
+	if !cdnFound {
+		cdnStep.Success = true
+		cdnStep.Message = "⚠️ No CDN signature — test with payload for better detection"
 	}
 
+	result.Steps = append(result.Steps, cdnStep)
+
+	// =============================================
+	// SMART SCORING
+	// =============================================
+	totalWeight := 0
+	earnedWeight := 0
+
+	for _, s := range result.Steps {
+		weight := 1
+
+		// Important steps get higher weight
+		if s.Step == "Payload Injection" && !strings.Contains(s.Message, "Skipped") {
+			weight = 3
+		}
+		if s.Step == "TLS/SNI" {
+			weight = 2
+		}
+		if s.Step == "SNI vs Certificate" && strings.Contains(s.Message, "SPOOF") {
+			weight = 2 // SNI spoof is good info
+		}
+
+		totalWeight += weight
+		if s.Success {
+			earnedWeight += weight
+		}
+	}
+
+	if totalWeight > 0 {
+		result.Score = earnedWeight * 100 / totalWeight
+	}
+
+	// Penalties
+	hasSNIMismatch := false
+	noPayload := true
+
+	for _, s := range result.Steps {
+		if strings.Contains(s.Message, "SNI SPOOF") {
+			hasSNIMismatch = true
+		}
+		if s.Step == "Payload Injection" && !strings.Contains(s.Message, "Skipped") {
+			noPayload = false
+		}
+	}
+
+	if noPayload {
+		result.Score -= 10 // Penalty for incomplete test
+	}
+
+	if result.Score > 100 {
+		result.Score = 100
+	}
+	if result.Score < 0 {
+		result.Score = 0
+	}
+
+	// Smart Summary
 	switch {
-	case result.Success && result.Score >= 80:
+	case result.Success && result.Score >= 80 && !noPayload:
 		result.Summary = "✅ CONFIG WORKING! Ready to deploy."
+	case result.Success && result.Score >= 80 && noPayload:
+		result.Summary = "✅ CONNECTION OK! Add payload for full verification."
 	case result.Success && result.Score >= 60:
-		result.Summary = "⚠️ PARTIALLY WORKING — check details."
+		result.Summary = "⚠️ PARTIALLY WORKING — check highlighted steps."
 	case result.Success && result.Score >= 40:
 		result.Summary = "🟡 WEAK — may work with adjustments."
+	case hasSNIMismatch && result.Score >= 50:
+		result.Summary = "🎭 SNI SPOOF ACTIVE — verify with payload."
 	default:
 		result.Summary = "❌ CONFIG FAILED — review setup."
 	}

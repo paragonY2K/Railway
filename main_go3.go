@@ -395,7 +395,7 @@ var (
 	timeout        = 8 * time.Second
 	maxConcurrency = 10
 	vpsTunnelHost  = ""
-	version        = "v3.8"
+	version        = "3.8"
 	author         = "TyphoonX"
 	scansCount     = 0
 	startTime      = time.Now()
@@ -3849,6 +3849,7 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
+	// 1. Subscription Check
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3870,12 +3871,13 @@ func handleStart(update tgbotapi.Update) {
 		return
 	}
 
+	// 2. Main Menu Logic
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	// Guna font Small Caps + Space supaya nampak Wide & Premium
+	// Syntax dah fix (tanda + dan " dah betul)
 	mainMenu := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
 		"<code>──────────────────────────</code>\n" +
 		"<b>Uptime :</b> <code>" + uptimeStr + "</code>\n" +
@@ -3886,7 +3888,7 @@ func handleStart(update tgbotapi.Update) {
 		"<code>──────────────────────────</code>\n" +
 		"Select an option below:"
 
-	keyboard := getMainMenuKeyboard() // Guna function keyboard kau balik
+	keyboard := getMainMenuKeyboard()
 
 	msg := tgbotapi.NewMessage(chatID, mainMenu)
 	msg.ParseMode = "HTML"
@@ -3920,23 +3922,28 @@ func handleAbout(update tgbotapi.Update) {
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
+	// Guna font Wide (Small Caps) yang sama macam handleStart
 	about := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
 		"<code>──────────────────────────</code>\n" +
-		"<b>Developer :</b> <code>" + safeAuthor + "</code>\n" +
+		"<b>Developer :</b> <code>@" + safeAuthor + "</code>\n" +
 		"<b>Community :</b> <code>@supremebughost</code>\n" +
-		"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+		"<code>──────────────────────────</code>\n" +
 		"<b>🚀 CORE FEATURES</b>\n" +
-		"• Multi-protocol (TLS/HTTP/WS)\n" +
-		"• CDN/WAF Bypass Detection\n" +
-		"• Subdomain Enumeration\n" +
-		"• CIDR Mass Scanning\n" +
-		"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+		"• <code>Multi-protocol</code> (TLS/HTTP/WS)\n" +
+		"• <code>CDN/WAF</code> Bypass Detection\n" +
+		"• <code>Subdomain</code> Enumeration\n" +
+		"• <code>CIDR</code> Mass Scanning\n" +
+		"<code>──────────────────────────</code>\n" +
 		"<i>Advanced Network Reconnaissance Tool</i>"
 
 	msg := tgbotapi.NewMessage(chatID, about)
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
-	bot.Send(msg)
+
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("Error sending About: %v", err)
+	}
 }
 
 func executeSingleScan(chatID int64, target string) {
