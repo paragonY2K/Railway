@@ -3849,7 +3849,6 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
-	// 1. Subscription Check
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3859,15 +3858,10 @@ func handleStart(update tgbotapi.Update) {
 				tgbotapi.NewInlineKeyboardButtonData("✅ I've Joined", "check_subscription"),
 			),
 		)
-
-		banner := "<code>" +
-			"┌──────────────────────────┐\n" +
-			"│    SUBSCRIPTION REQUIRED │\n" +
-			"└──────────────────────────┘</code>\n\n" +
-			"<b>👋 Welcome to PARAGON SNI Pro!</b>\n" +
-			"━━━━━━━━━━━━━━━━━━━━\n\n" +
-			"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n" +
-			"👉 Click below to join, then press the button to start."
+		banner := "<b>[ ⚠️ SUBSCRIPTION REQUIRED ]</b>\n" +
+			"<code>──────────────────────────</code>\n" +
+			"<b>Welcome to PARAGON SNI Pro</b>\n\n" +
+			"Please join our channel to keep the engine running and get the latest bug list."
 
 		msg := tgbotapi.NewMessage(chatID, banner)
 		msg.ParseMode = "HTML"
@@ -3876,47 +3870,23 @@ func handleStart(update tgbotapi.Update) {
 		return
 	}
 
-	// 2. Main Menu Logic
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
-
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	mainMenu := "<code>" +
-		"█▀█ ▄▀█ █▀█ ▄▀█ █▀▀ █▄█ █▄░█\n" +
-		"█▀▀ █▀█ █▀▄ █▀█ █▄█ █▄█ █░▀█</code>\n" +
-		"<b>⚡ PARAGON SNI PRO</b>\n" +
-		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"<b>Version:</b> <code>" + safeVersion + "</code>\n" +
-		"<b>Uptime:</b> <code>" + uptimeStr + "</code>\n" +
-		"<b>Dev:</b> @ " + safeAuthor + "\n\n" +
+	// Guna font Small Caps + Space supaya nampak Wide & Premium
+	mainMenu := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"<b>Uptime :</b> <code>" + uptimeStr + "</code>\n" +
+		"<b>Engine :</b> <code>Go High-Performance</code>\n" +
+		"<b>Status :</b> <code>Operational</code>\n" +
+		"<b>Author :</b> <code>@" + safeAuthor + "</code>\n\n" +
 		"<i>High-Performance SNI Scanner Engine</i>\n" +
-		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"<code>──────────────────────────</code>\n" +
 		"Select an option below:"
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Single Scan", "menu_single"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 Mass Scan", "menu_mass"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🌐 CIDR Scan", "menu_cidr"),
-			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
-			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("💉 Payload Test", "menu_payload"),
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ Config Validator", "menu_cfgval"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
-			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
-		),
-	)
+	keyboard := getMainMenuKeyboard() // Guna function keyboard kau balik
 
 	msg := tgbotapi.NewMessage(chatID, mainMenu)
 	msg.ParseMode = "HTML"
@@ -3947,39 +3917,26 @@ func handleAbout(update tgbotapi.Update) {
 		chatID = update.CallbackQuery.Message.Chat.ID
 	}
 
-	// Escape variables untuk elak crash
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	// ASCII PARAGON yang tebal dan senang baca
-	about := fmt.Sprintf(
-		"<code>"+
-			"█▀█ ▄▀█ █▀█ ▄▀█ █▀▀ █▄█ █▄░█\n"+
-			"█▀▀ █▀█ █▀▄ █▀█ █▄█ █▄█ █░▀█</code>\n"+
-			"<b>⚡ PARAGON SNI PRO %s</b>\n"+
-			"<i>Advanced Network Reconnaissance Tool</i>\n"+
-			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"<b>👤 Developer:</b> <code>%s</code>\n"+
-			"<b>⚙️ Engine:</b> <code>Go v1.22 High-Performance</code>\n"+
-			"<b>🛡️ Status:</b> <code>System Operational</code>\n"+
-			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"<b>🚀 Core Features:</b>\n"+
-			"• <code>Multi-protocol</code> (TLS/HTTP/WS)\n"+
-			"• <code>CDN/WAF</code> Bypass Detection\n"+
-			"• <code>Subdomain</code> Enumeration\n"+
-			"• <code>CIDR</code> Mass Scanning\n"+
-			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"<i>Powered by Paragon Community</i>",
-		safeVersion, safeAuthor)
+	about := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"<b>Developer :</b> <code>" + safeAuthor + "</code>\n" +
+		"<b>Community :</b> <code>@supremebughost</code>\n" +
+		"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+		"<b>🚀 CORE FEATURES</b>\n" +
+		"• Multi-protocol (TLS/HTTP/WS)\n" +
+		"• CDN/WAF Bypass Detection\n" +
+		"• Subdomain Enumeration\n" +
+		"• CIDR Mass Scanning\n" +
+		"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+		"<i>Advanced Network Reconnaissance Tool</i>"
 
 	msg := tgbotapi.NewMessage(chatID, about)
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
-
-	_, err := bot.Send(msg)
-	if err != nil {
-		log.Printf("Error sending About: %v", err)
-	}
+	bot.Send(msg)
 }
 
 func executeSingleScan(chatID int64, target string) {
