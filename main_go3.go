@@ -394,7 +394,7 @@ var (
 	timeout        = 8 * time.Second
 	maxConcurrency = 10
 	vpsTunnelHost  = ""
-	version        = "v3.7"
+	version        = "v3.8"
 	author         = "TyphoonX"
 	scansCount     = 0
 	startTime      = time.Now()
@@ -609,7 +609,7 @@ func getSecureLink() string {
 func SupremeVerify() bool {
 	// [PATCHED] Direct bypass for Railway deployment
 	fmt.Println("✅ RAILWAY DEPLOYMENT - LICENSE BYPASSED")
-	fmt.Printf("🚀 TYPHOON SNI PRO %s - Starting...\n", version)
+	fmt.Printf("🚀 PARAGON SNI PRO %s - Starting...\n", version)
 	return true
 }
 
@@ -1306,13 +1306,13 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 	}
 
 	isBigTechNative := false
-for _, domain := range bigTechDomains {
-    if hostClean == domain || hostClean == "www."+domain {
-        isBigTechNative = true
-        break
-    }
-}
-// ← PASTIKAN ADA NI
+	for _, domain := range bigTechDomains {
+		if hostClean == domain || hostClean == "www."+domain {
+			isBigTechNative = true
+			break
+		}
+	}
+	// ← PASTIKAN ADA NI
 
 	if isBigTechNative {
 		// Still get TLS info for display
@@ -2914,7 +2914,7 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 					cnClean := strings.ToLower(strings.ReplaceAll(cand.info.CommonName, "*.", ""))
 					hostClean := strings.ToLower(cand.host)
 					cdnMismatch := cnClean != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean)
-					
+
 					if !cdnMismatch {
 						finalScore = finalScore / 3
 					}
@@ -3427,7 +3427,7 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 	var summary strings.Builder
 	summary.WriteString("```\n")
 	summary.WriteString("╭──────────────────────────╮\n")
-	summary.WriteString("│     🛡️ CIDR AUDIT DONE    │\n")
+	summary.WriteString("│  🛡️ PARAGON CIDR AUDIT DONE    │\n")
 	summary.WriteString("╰──────────────────────────╯\n")
 	summary.WriteString(fmt.Sprintf("Target : %s\n", cidr))
 	summary.WriteString(fmt.Sprintf("Range  : %d IPs | %d Jobs\n", totalIPs, totalJobs))
@@ -3764,6 +3764,7 @@ func getMainMenuKeyboard() *tgbotapi.InlineKeyboardMarkup {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💉 Payload Test", "menu_payload"),
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Config Validator", "menu_cfgval"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
@@ -3858,7 +3859,7 @@ func handleStart(update tgbotapi.Update) {
 		)
 
 		msg := tgbotapi.NewMessage(chatID,
-			"👋 *Welcome to Typhoon SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+			"👋 *Welcome to PARAGON SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
 				"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n"+
 				"👉 Click below to join, then press the button to start.")
 		msg.ParseMode = "Markdown"
@@ -3868,7 +3869,7 @@ func handleStart(update tgbotapi.Update) {
 	}
 
 	hwid := getHWID()
-	banner := "🔥 TYPHOON SNI PRO " + version + "\n"
+	banner := "🔥 PARAGON SNI PRO " + version + "\n"
 	banner += "━━━━━━━━━━━━━━━━━━━━\n"
 	banner += "Developer: @" + author + "\n"
 	banner += "HWID: " + hwid + "\n"
@@ -3927,7 +3928,7 @@ func handleAbout(update tgbotapi.Update) {
 	}
 
 	about := fmt.Sprintf(
-		"*ℹ️ TYPHOON SNI PRO %s*\n"+
+		"*ℹ️ PARAGON SNI PRO %s*\n"+
 			"━━━━━━━━━━━━━━━━━━━━\n"+
 			"*Developer:* %s\n"+
 			"*Engine:* Go High\\-Performance\n"+
@@ -4211,7 +4212,7 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 
 	sb.WriteString("```\n")
 	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│     🎯 SCAN COMPLETE    │\n")
+	sb.WriteString("│  🎯 PARAGON SINGLE SCAN COMPLETE    │\n")
 	sb.WriteString("╰─────────────────────────╯\n\n")
 
 	sb.WriteString(fmt.Sprintf("Target   : %s\n", host))
@@ -4445,7 +4446,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 	switch data {
 	case "menu_main":
 		clearSessionState(chatID)
-		msg := tgbotapi.NewMessage(chatID, "*🔥 TYPHOON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
+		msg := tgbotapi.NewMessage(chatID, "*🔥 PARAGON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
 		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = getMainMenuKeyboard()
 		bot.Send(msg)
@@ -4458,7 +4459,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		bot.Send(msg)
 
 	case "menu_about":
-		about := fmt.Sprintf("ℹ️ TYPHOON SNI PRO %s\n━━━━━━━━━━━━━━━━━━━━\nDeveloper: %s\nEngine: Go High-Performance\nFeatures:\n- Multi-protocol (TLS/HTTP/WS)\n- CDN/WAF Bypass Detection\n- Premium SNI Database\n- Subdomain Enumeration\n- CIDR Range Scanning\n━━━━━━━━━━━━━━━━━━━━", version, author)
+		about := fmt.Sprintf("ℹ️ PARAGON SNI PRO %s\n━━━━━━━━━━━━━━━━━━━━\nDeveloper: %s\nEngine: Go High-Performance\nFeatures:\n- Multi-protocol (TLS/HTTP/WS)\n- CDN/WAF Bypass Detection\n- Premium SNI Database\n- Subdomain Enumeration\n- CIDR Range Scanning\n━━━━━━━━━━━━━━━━━━━━", version, author)
 		msg := tgbotapi.NewMessage(chatID, about)
 		msg.ReplyMarkup = getMainMenuOnlyKeyboard()
 		bot.Send(msg)
@@ -4535,6 +4536,18 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 
+	case "menu_config":
+		showConfigValidatorMenu(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_quick":
+		showQuickTestPrompt(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_payload_pick":
+		showPayloadPicker(chatID, callback.Message.MessageID)
+		return
+
 	case "mass_ports_default":
 		session := getSession(chatID)
 		hosts, ok := session.TempData["mass_hosts"].([]string)
@@ -4552,6 +4565,45 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		}
 		go executeMassScan(chatID, sentMsg.MessageID, hosts, []int{443, 80, 8080})
 		clearSessionState(chatID)
+
+		// Step by Step
+	case "cfg_step":
+		startStepByStep(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_step_pick_payload":
+		showPayloadPickerForStep(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_step_custom_payload":
+		promptStepCustomPayload(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_step_skip_payload":
+		session := getSession(chatID)
+		config, _ := session.TempData["step_config"].(UserConfig)
+		config.Payload = ""
+		session.TempData["step_config"] = config
+		session.TempData["step_current"] = 4
+		showStepPrompt(chatID, callback.Message.MessageID, 4, config)
+		return
+
+	// From Scan Result
+	case "cfg_scan":
+		startFromScanResult(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_scan_pick_payload":
+		showPayloadPickerForScan(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_scan_custom_payload":
+		promptScanCustomPayload(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_scan_skip_payload":
+		runScanValidation(chatID)
+		return
 
 	case "cidr_ports_default":
 		session := getSession(chatID)
@@ -4584,7 +4636,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			bot.Send(tgbotapi.NewDeleteMessage(chatID, callback.Message.MessageID))
 			bot.Send(tgbotapi.NewCallback(callback.ID, "✅ Verified! Welcome back."))
 
-			msg := tgbotapi.NewMessage(chatID, "*🔥 TYPHOON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
+			msg := tgbotapi.NewMessage(chatID, "*🔥 PARAGON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\n\n*Select an option:*")
 			msg.ParseMode = "MarkdownV2"
 			msg.ReplyMarkup = getMainMenuKeyboard()
 			bot.Send(msg)
@@ -4687,7 +4739,6 @@ func handleMessage(update tgbotapi.Update) {
 
 		clearSessionState(chatID)
 		statusMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "🚀 *Initializing Mass Engine...*"))
-
 		go executeMassScan(chatID, statusMsg.MessageID, hosts, ports)
 		return
 
@@ -4718,6 +4769,108 @@ func handleMessage(update tgbotapi.Update) {
 		clearSessionState(chatID)
 		go executePayloadTest(chatID, text)
 		return
+
+	// =============================================
+	// CONFIG VALIDATOR MESSAGE HANDLERS
+	// =============================================
+	case "config_quick_input":
+		clearSessionState(chatID)
+		go executeConfigValidation(chatID, text)
+		return
+
+	case "config_payload_select":
+		idx, err := strconv.Atoi(strings.TrimSpace(text))
+		if err == nil && idx >= 1 && idx <= len(payloadList) {
+			selectedPayload := payloadList[idx-1].Template
+			session.TempData["selected_payload"] = selectedPayload
+
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*\n\nNow send your config:\nFormat: `proxy:port|sni|-|target`\n\nThe payload will be auto-inserted.", payloadList[idx-1].Name))
+			msg.ParseMode = "Markdown"
+			msg.ReplyMarkup = getCancelKeyboard()
+			bot.Send(msg)
+
+			setSessionState(chatID, "config_quick_input")
+		} else {
+			msg := tgbotapi.NewMessage(chatID, "❌ Invalid number. Pick 1-28.")
+			bot.Send(msg)
+		}
+		return
+
+	case "config_step_proxy":
+		handleStepInput(chatID, 0, text)
+		return
+
+	case "config_step_sni":
+		handleStepInput(chatID, 0, text)
+		return
+
+	case "config_step_target":
+		handleStepInput(chatID, 0, text)
+		return
+
+	case "config_step_payload_select":
+		idx, err := strconv.Atoi(strings.TrimSpace(text))
+		if err == nil && idx >= 1 && idx <= len(payloadList) {
+			session := getSession(chatID)
+			config, _ := session.TempData["step_config"].(UserConfig)
+			config.Payload = payloadList[idx-1].Template
+			session.TempData["step_config"] = config
+			session.TempData["step_current"] = 4
+
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*", payloadList[idx-1].Name))
+			msg.ParseMode = "Markdown"
+			bot.Send(msg)
+
+			sentMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "⏳ Loading next step..."))
+			showStepPrompt(chatID, sentMsg.MessageID, 4, config)
+		} else {
+			bot.Send(tgbotapi.NewMessage(chatID, "❌ Invalid number. Pick 1-28."))
+		}
+		return
+
+	case "config_step_payload_custom":
+		session := getSession(chatID)
+		config, _ := session.TempData["step_config"].(UserConfig)
+		config.Payload = text
+		session.TempData["step_config"] = config
+		session.TempData["step_current"] = 4
+
+		msg := tgbotapi.NewMessage(chatID, "✅ Custom payload saved!")
+		bot.Send(msg)
+
+		sentMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "⏳ Loading next step..."))
+		showStepPrompt(chatID, sentMsg.MessageID, 4, config)
+		return
+
+	case "config_scan_payload_select":
+		idx, err := strconv.Atoi(strings.TrimSpace(text))
+		if err == nil && idx >= 1 && idx <= len(payloadList) {
+			session := getSession(chatID)
+			config, _ := session.TempData["scan_config"].(UserConfig)
+			config.Payload = payloadList[idx-1].Template
+			session.TempData["scan_config"] = config
+
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*\n⏳ Running validation...", payloadList[idx-1].Name))
+			msg.ParseMode = "Markdown"
+			bot.Send(msg)
+
+			runScanValidation(chatID)
+		} else {
+			bot.Send(tgbotapi.NewMessage(chatID, "❌ Invalid number. Pick 1-28."))
+		}
+		return
+
+	case "config_scan_payload_custom":
+		session := getSession(chatID)
+		config, _ := session.TempData["scan_config"].(UserConfig)
+		config.Payload = text
+		session.TempData["scan_config"] = config
+
+		msg := tgbotapi.NewMessage(chatID, "✅ Custom payload saved!\n⏳ Running validation...")
+		bot.Send(msg)
+
+		runScanValidation(chatID)
+		return
 	}
 
 	if text != "" && strings.Contains(text, ".") && !strings.Contains(text, " ") {
@@ -4733,7 +4886,7 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	msg := tgbotapi.NewMessage(chatID, "*🔥 TYPHOON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\nSelect an option below to begin:")
+	msg := tgbotapi.NewMessage(chatID, "*🔥 PARAGON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\nSelect an option below to begin:")
 	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = getMainMenuKeyboard()
 	bot.Send(msg)

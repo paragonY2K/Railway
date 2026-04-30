@@ -1,7 +1,8 @@
 package main
 
 // =============================================
-// PAYLOAD BANK — Full library with [ua] support
+// PAYLOAD BANK — 28 Power Payloads
+// Format: TAB indentation for phone editor
 // =============================================
 
 var payloadList = []struct {
@@ -9,7 +10,7 @@ var payloadList = []struct {
 	Template string
 }{
 	// =============================================
-	// BASIC PAYLOADS
+	// BASIC METHODS (PROVEN)
 	// =============================================
 	{
 		Name:     "Basic CONNECT",
@@ -29,29 +30,7 @@ var payloadList = []struct {
 	},
 
 	// =============================================
-	// RARE HTTP METHODS (FIREWALL BYPASS)
-	// =============================================
-	{
-		Name:     "PATCH Method",
-		Template: "PATCH / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf][crlf]",
-	},
-	{
-		Name:     "PUT Method",
-		Template: "PUT / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf][crlf]",
-	},
-	{
-		Name:     "DELETE Method",
-		Template: "DELETE / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf][crlf]",
-	},
-
-	// 🔥 NEW: PATCH + Double Host + WS
-	{
-		Name:     "PATCH Double Host WS",
-		Template: "PATCH / HTTP/1.1[crlf]Host: [host][crlf]Host: example.com[crlf]Service: SSH[crlf]ModeX: Bypass[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf][crlf]",
-	},
-
-	// =============================================
-	// SOCIAL MEDIA IMPERSONATION
+	// SOCIAL MEDIA (PROVEN)
 	// =============================================
 	{
 		Name:     "FBAV Facebook",
@@ -75,7 +54,7 @@ var payloadList = []struct {
 	},
 
 	// =============================================
-	// PROXY FORWARDING
+	// PROXY FORWARDING (PROVEN)
 	// =============================================
 	{
 		Name:     "Proxy Forward",
@@ -89,52 +68,42 @@ var payloadList = []struct {
 		Name:     "Double Proxy",
 		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]X-Forwarded-For: 31.13.64.39[crlf]X-Forwarded-Host: [host][crlf][crlf]",
 	},
-
-	// 🔥 NEW: Proxy Keep-Alive + Custom Header
 	{
 		Name:     "Proxy Keep-Alive Custom",
 		Template: "CONNECT [host]:[port] HTTP/1.1[crlf]x-connected-to: 34.143.72.2[crlf]proxy-connection: keep-alive[crlf]connection: keep-alive[crlf]user-agent: FBAV/0.0[crlf]x-iorg-bsid: @AM2_D3[crlf][crlf]",
 	},
 
 	// =============================================
-	// CDN FRONTING
-	// =============================================
-	{
-		Name:     "CloudFront Style",
-		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Amazon CloudFront[crlf]X-Amz-Cf-Id: test123[crlf][crlf]",
-	},
-	{
-		Name:     "Cloudflare Style",
-		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Cloudflare Worker[crlf]CF-RAY: test123[crlf][crlf]",
-	},
-	{
-		Name:     "Akamai Style",
-		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Akamai Edge[crlf]X-Akamai-Request-ID: test123[crlf][crlf]",
-	},
-
-	// =============================================
-	// HTTP CUSTOM / INJECTOR STYLE
+	// HTTP CUSTOM STYLE (PROVEN)
 	// =============================================
 	{
 		Name:     "HTTP Custom Style",
 		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]X-Online-Host: [host][crlf]Connection: Keep-Alive[crlf][crlf]",
 	},
 	{
-		Name:     "Maxis/Unifi Style",
-		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]X-Online-Host: [host][crlf]Proxy-Connection: Keep-Alive[crlf][crlf]",
-	},
-	{
-		Name:     "Celcom/Digi Style",
-		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]X-Forwarded-For: 10.0.0.1[crlf]Proxy-Authorization: Basic[crlf][crlf]",
+		Name:     "GoogleBot UA",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Googlebot/2.1 (+http://www.google.com/bot.html)[crlf][crlf]",
 	},
 
 	// =============================================
-	// WEBSOCKET UPGRADE
+	// WEBSOCKET UPGRADE (PROVEN)
 	// =============================================
 	{
 		Name:     "WebSocket Upgrade",
 		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf]Sec-WebSocket-Version: 13[crlf][crlf]",
 	},
+	{
+		Name:     "SNI Upgrade WS",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]Upgrade: websocket[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+	{
+		Name:     "WS + Backend Custom",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Backend: @vps[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf][crlf]",
+	},
+
+	// =============================================
+	// SERVICE BYPASS (PROVEN)
+	// =============================================
 	{
 		Name:     "SSH Service Bypass",
 		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Service: SSH[crlf]Mode: Bypass[crlf][crlf]",
@@ -144,15 +113,43 @@ var payloadList = []struct {
 		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Service: VPN[crlf]Mode: Bypass[crlf][crlf]",
 	},
 
-	// 🔥 NEW: Split Payload + Rotate + WS FULL
+	// =============================================
+	// CONNECT TUNNEL (PROVEN)
+	// =============================================
 	{
-		Name:     "Split-Rotate-WS Full",
-		Template: "PUT / HTTP/1.1[crlf]Host: [host][crlf][crlf][split][crlf][crlf]X / HTTP/1.1[crlf]Host: [host][crlf][crlf]GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Backend: tunnel[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]",
+		Name:     "CONNECT Tunnel 80",
+		Template: "CONNECT [host]:80 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf][crlf]",
 	},
 
-	// 🔥 NEW: WebSocket + Custom Backend
+	// =============================================
+	// ADVANCED — SPLIT TRICK
+	// =============================================
 	{
-		Name:     "WS + Backend Custom",
-		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Backend: @vps[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf][crlf]",
+		Name:     "Split Trick WS",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+	{
+		Name:     "Double Host WS",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+	{
+		Name:     "PATCH Double Host WS",
+		Template: "PATCH / HTTP/1.1[crlf]Host: [host][crlf]Host: example.com[crlf]Service: SSH[crlf]ModeX: Bypass[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+
+	// =============================================
+	// ADVANCED — CF TRACE + WS
+	// =============================================
+	{
+		Name:     "CF Trace Trick",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+	{
+		Name:     "Trace WS Upgrade",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+	},
+	{
+		Name:     "Trace XFF 1111 WS",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf]X-Forwarded-For: 1.1.1.1[crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
 	},
 }
