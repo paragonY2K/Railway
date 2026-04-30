@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"math/rand"
@@ -3848,6 +3849,7 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
+	// 1. Subscription Check
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3858,27 +3860,42 @@ func handleStart(update tgbotapi.Update) {
 			),
 		)
 
-		msg := tgbotapi.NewMessage(chatID,
-			"👋 *Welcome to PARAGON SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-				"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n"+
-				"👉 Click below to join, then press the button to start.")
-		msg.ParseMode = "Markdown"
+		banner := "<code>" +
+			"┌──────────────────────────┐\n" +
+			"│    SUBSCRIPTION REQUIRED │\n" +
+			"└──────────────────────────┘</code>\n\n" +
+			"<b>👋 Welcome to PARAGON SNI Pro!</b>\n" +
+			"━━━━━━━━━━━━━━━━━━━━\n\n" +
+			"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n" +
+			"👉 Click below to join, then press the button to start."
+
+		msg := tgbotapi.NewMessage(chatID, banner)
+		msg.ParseMode = "HTML"
 		msg.ReplyMarkup = &keyboard
 		bot.Send(msg)
 		return
 	}
 
+	// 2. Main Menu Logic
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
 
-	var sb strings.Builder
-	sb.WriteString("*⚡ PARAGON SNI PRO*\n")
-	sb.WriteString(fmt.Sprintf("*Version:* `%s`\n", version))
-	sb.WriteString(fmt.Sprintf("*Uptime:* `%s`\n", uptimeStr))
-	sb.WriteString(fmt.Sprintf("*Dev:* @%s\n\n", author))
-	sb.WriteString("_High-Performance SNI Scanner Engine_\n")
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
-	sb.WriteString("Select an option:")
+	safeVersion := html.EscapeString(version)
+	safeAuthor := html.EscapeString(author)
+
+	// ASCII PARAGON (Mobile Optimized)
+	mainMenu := "<code>" +
+		"╔═╗╔═╗╦═╗╔═╗╔═╗╔═╗╔╗╔\n" +
+		"╠═╝╠═╣╠╦╝╠═╣║ ╦║ ║║║║\n" +
+		"╩  ╩ ╩╩╚═╩ ╩╚═╝╚═╝╝╚╝</code>\n" +
+		"<b>⚡ PARAGON SNI PRO</b>\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"<b>Version:</b> <code>" + safeVersion + "</code>\n" +
+		"<b>Uptime:</b> <code>" + uptimeStr + "</code>\n" +
+		"<b>Dev:</b> @ " + safeAuthor + "\n\n" +
+		"<i>High-Performance SNI Scanner Engine</i>\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"Select an option below:"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -3903,8 +3920,8 @@ func handleStart(update tgbotapi.Update) {
 		),
 	)
 
-	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ParseMode = "MarkdownV2"
+	msg := tgbotapi.NewMessage(chatID, mainMenu)
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
@@ -3932,24 +3949,36 @@ func handleAbout(update tgbotapi.Update) {
 		chatID = update.CallbackQuery.Message.Chat.ID
 	}
 
+	// Design ni guna tag HTML:
+	// <b> = Bold
+	// <code> = Monospace (font nampak macam terminal/code)
+	// <i> = Italic
 	about := fmt.Sprintf(
-		"*ℹ️ PARAGON SNI PRO %s*\n"+
+		"<b>⚡ PARAGON SNI PRO %s</b>\n"+
+			"<i>Advanced Network Reconnaissance Tool</i>\n"+
 			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"*Developer:* %s\n"+
-			"*Engine:* Go High\\-Performance\n"+
-			"*Features:*\n"+
-			"• Multi\\-protocol \\(TLS/HTTP/WS\\)\n"+
-			"• CDN/WAF Bypass Detection\n"+
-			"• Premium SNI Database\n"+
-			"• Subdomain Enumeration\n"+
-			"• CIDR Range Scanning\n"+
-			"━━━━━━━━━━━━━━━━━━━━",
+			"<b>👤 Developer:</b> <code>%s</code>\n"+
+			"<b>⚙️ Engine:</b> <code>Go v1.22 High-Performance</code>\n"+
+			"<b>🛡️ Status:</b> <code>System Operational</code>\n"+
+			"━━━━━━━━━━━━━━━━━━━━\n"+
+			"<b>🚀 Core Features:</b>\n"+
+			"• <code>Multi-protocol</code> (TLS/HTTP/WS)\n"+
+			"• <code>CDN/WAF</code> Bypass Detection\n"+
+			"• <code>Subdomain</code> Enumeration\n"+
+			"• <code>CIDR</code> Mass Scanning\n"+
+			"━━━━━━━━━━━━━━━━━━━━\n"+
+			"<i>Powered by Paragon</i>",
 		version, author)
 
 	msg := tgbotapi.NewMessage(chatID, about)
-	msg.ParseMode = "MarkdownV2"
+	msg.ParseMode = "HTML" // Pakai HTML supaya tak crash di Railway
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
-	bot.Send(msg)
+
+	_, err := bot.Send(msg)
+	if err != nil {
+		// Log error ke terminal Railway kalau hantar mesej gagal
+		log.Printf("Error sending About: %v", err)
+	}
 }
 
 func executeSingleScan(chatID int64, target string) {
@@ -4672,7 +4701,7 @@ func handleMessage(update tgbotapi.Update) {
 	}
 
 	chatID := update.Message.Chat.ID
-	text := strings.TrimSpace(update.Message.Text)
+	text := html.EscapeString(strings.TrimSpace(update.Message.Text))
 	session := getSession(chatID)
 
 	trackUserActivity(update)
@@ -4682,8 +4711,17 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 	if !isSubscribed(chatID) {
-		msg := tgbotapi.NewMessage(chatID, "🚫 *ACCESS DENIED*\n━━━━━━━━━━━━━━━━━━━━\nPlease join our official channel to use the scanner.\n\nTarget: @supremebughost")
-		msg.ParseMode = "Markdown"
+		banner := "<code>" +
+			"╔══════════════════════════╗\n" +
+			"║      ACCESS DENIED       ║\n" +
+			"╚══════════════════════════╝</code>\n\n" +
+			"<b>🚫 ACCESS DENIED</b>\n" +
+			"━━━━━━━━━━━━━━━━━━━━\n" +
+			"Please join our official channel to use the scanner.\n\n" +
+			"<b>Target:</b> @supremebughost"
+
+		msg := tgbotapi.NewMessage(chatID, banner)
+		msg.ParseMode = "HTML"
 		bot.Send(msg)
 		return
 	}
@@ -4720,7 +4758,9 @@ func handleMessage(update tgbotapi.Update) {
 		}
 
 		if len(ports) == 0 {
-			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Invalid port!*\nEnter valid port numbers (1-65535).\nExample: `443, 80, 8080`"))
+			msg := tgbotapi.NewMessage(chatID, "❌ <b>Invalid port!</b>\nEnter valid port numbers (1-65535).\nExample: <code>443, 80, 8080</code>")
+			msg.ParseMode = "HTML"
+			bot.Send(msg)
 			return
 		}
 
@@ -4732,13 +4772,15 @@ func handleMessage(update tgbotapi.Update) {
 		}
 
 		if len(hosts) == 0 {
-			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Session Expired!*\nPlease upload your `.txt` file again."))
+			msg := tgbotapi.NewMessage(chatID, "❌ <b>Session Expired!</b>\nPlease upload your <code>.txt</code> file again.")
+			msg.ParseMode = "HTML"
+			bot.Send(msg)
 			clearSessionState(chatID)
 			return
 		}
 
 		clearSessionState(chatID)
-		statusMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "🚀 *Initializing Mass Engine...*"))
+		statusMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "🚀 <b>Initializing Mass Engine...</b>"))
 		go executeMassScan(chatID, statusMsg.MessageID, hosts, ports)
 		return
 
@@ -4770,9 +4812,6 @@ func handleMessage(update tgbotapi.Update) {
 		go executePayloadTest(chatID, text)
 		return
 
-	// =============================================
-	// CONFIG VALIDATOR MESSAGE HANDLERS
-	// =============================================
 	case "config_quick_input":
 		clearSessionState(chatID)
 		go executeConfigValidation(chatID, text)
@@ -4784,8 +4823,8 @@ func handleMessage(update tgbotapi.Update) {
 			selectedPayload := payloadList[idx-1].Template
 			session.TempData["selected_payload"] = selectedPayload
 
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*\n\nNow send your config:\nFormat: `proxy:port|sni|-|target`\n\nThe payload will be auto-inserted.", payloadList[idx-1].Name))
-			msg.ParseMode = "Markdown"
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: <b>%s</b>\n\nNow send your config:\nFormat: <code>proxy:port|sni|-|target</code>\n\nThe payload will be auto-inserted.", payloadList[idx-1].Name))
+			msg.ParseMode = "HTML"
 			msg.ReplyMarkup = getCancelKeyboard()
 			bot.Send(msg)
 
@@ -4811,14 +4850,13 @@ func handleMessage(update tgbotapi.Update) {
 	case "config_step_payload_select":
 		idx, err := strconv.Atoi(strings.TrimSpace(text))
 		if err == nil && idx >= 1 && idx <= len(payloadList) {
-			session := getSession(chatID)
 			config, _ := session.TempData["step_config"].(UserConfig)
 			config.Payload = payloadList[idx-1].Template
 			session.TempData["step_config"] = config
 			session.TempData["step_current"] = 4
 
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*", payloadList[idx-1].Name))
-			msg.ParseMode = "Markdown"
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: <b>%s</b>", payloadList[idx-1].Name))
+			msg.ParseMode = "HTML"
 			bot.Send(msg)
 
 			sentMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "⏳ Loading next step..."))
@@ -4829,7 +4867,6 @@ func handleMessage(update tgbotapi.Update) {
 		return
 
 	case "config_step_payload_custom":
-		session := getSession(chatID)
 		config, _ := session.TempData["step_config"].(UserConfig)
 		config.Payload = text
 		session.TempData["step_config"] = config
@@ -4845,13 +4882,12 @@ func handleMessage(update tgbotapi.Update) {
 	case "config_scan_payload_select":
 		idx, err := strconv.Atoi(strings.TrimSpace(text))
 		if err == nil && idx >= 1 && idx <= len(payloadList) {
-			session := getSession(chatID)
 			config, _ := session.TempData["scan_config"].(UserConfig)
 			config.Payload = payloadList[idx-1].Template
 			session.TempData["scan_config"] = config
 
-			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: *%s*\n⏳ Running validation...", payloadList[idx-1].Name))
-			msg.ParseMode = "Markdown"
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Selected: <b>%s</b>\n⏳ Running validation...", payloadList[idx-1].Name))
+			msg.ParseMode = "HTML"
 			bot.Send(msg)
 
 			runScanValidation(chatID)
@@ -4861,18 +4897,19 @@ func handleMessage(update tgbotapi.Update) {
 		return
 
 	case "config_scan_payload_custom":
-		session := getSession(chatID)
 		config, _ := session.TempData["scan_config"].(UserConfig)
 		config.Payload = text
 		session.TempData["scan_config"] = config
 
 		msg := tgbotapi.NewMessage(chatID, "✅ Custom payload saved!\n⏳ Running validation...")
+		msg.ParseMode = "HTML"
 		bot.Send(msg)
 
 		runScanValidation(chatID)
 		return
 	}
 
+	// 4. Auto-detect
 	if text != "" && strings.Contains(text, ".") && !strings.Contains(text, " ") {
 		if strings.Contains(text, "/") {
 			setSessionState(chatID, "awaiting_cidr_input")
@@ -4880,14 +4917,26 @@ func handleMessage(update tgbotapi.Update) {
 			return
 		}
 		clearSessionState(chatID)
-		msg := tgbotapi.NewMessage(chatID, "🚀 *Direct Scan Detected*")
+		msg := tgbotapi.NewMessage(chatID, "🚀 <b>Direct Scan Detected</b>")
+		msg.ParseMode = "HTML"
 		bot.Send(msg)
 		go executeSingleScan(chatID, text)
 		return
 	}
 
-	msg := tgbotapi.NewMessage(chatID, "*🔥 PARAGON SNI PRO*\n━━━━━━━━━━━━━━━━━━━━\nSelect an option below to begin:")
-	msg.ParseMode = "MarkdownV2"
+	// 5. Main Menu
+	mainBanner := "<code>" +
+		"██████╗  █████╗ ██████╗ \n" +
+		"██╔══██╗██╔══██╗██╔══██╗\n" +
+		"██████╔╝███████║██████╔╝\n" +
+		"██╔═══╝ ██╔══██║██╔══██╗\n" +
+		"██║     ██║  ██║██║  ██║</code>\n" +
+		"<b>🔥 PARAGON SNI PRO</b>\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"Select an option below to begin:"
+
+	msg := tgbotapi.NewMessage(chatID, mainBanner)
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuKeyboard()
 	bot.Send(msg)
 }
