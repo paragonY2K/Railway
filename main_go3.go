@@ -4942,19 +4942,49 @@ func handleUsersCommand(update tgbotapi.Update) {
 	totalUsers := len(userData.Users)
 	totalScans := 0
 	bannedCount := 0
+	activeCount := 0
 	for _, u := range userData.Users {
 		totalScans += u.Scans
 		if u.Banned {
 			bannedCount++
+		} else {
+			activeCount++
 		}
 	}
 	umMutex.RUnlock()
 
-	msg := fmt.Sprintf("📊 *Bot Stats*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-		"👥 Users: %d\n"+
-		"🔍 Scans: %d\n"+
-		"🚫 Banned: %d", totalUsers, totalScans, bannedCount)
-	bot.Send(tgbotapi.NewMessage(chatID, msg))
+	uptime := time.Since(startTime)
+	uptimeStr := formatDuration(uptime)
+
+	var sb strings.Builder
+	sb.WriteString("```\n")
+	sb.WriteString("╔═══════════════════════════╗\n")
+	sb.WriteString("║   PARAGON BOT STATS       ║\n")
+	sb.WriteString("╠═══════════════════════════╣\n")
+	sb.WriteString(fmt.Sprintf("║ 👥 Users        : %-5d  ║\n", totalUsers))
+	sb.WriteString(fmt.Sprintf("║ ✅ Active       : %-5d  ║\n", activeCount))
+	sb.WriteString(fmt.Sprintf("║ 🚫 Banned       : %-5d  ║\n", bannedCount))
+	sb.WriteString(fmt.Sprintf("║ 🔍 Scans        : %-5d  ║\n", totalScans))
+	sb.WriteString(fmt.Sprintf("║ ⏱️  Uptime      : %-5s  ║\n", uptimeStr))
+	sb.WriteString(fmt.Sprintf("║ 📦 Version     : %-5s  ║\n", version))
+	sb.WriteString("╚═══════════════════════════╝\n")
+	sb.WriteString("```")
+
+	bot.Send(tgbotapi.NewMessage(chatID, sb.String()))
+}
+
+func formatDuration(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }
 
 func handleUserListCommand(update tgbotapi.Update) {
@@ -4982,8 +5012,21 @@ func handleUserListCommand(update tgbotapi.Update) {
 		return users[i].Info.Scans > users[j].Info.Scans
 	})
 
+	// Count active & banned
+	activeCount := 0
+	bannedCount := 0
+	for _, u := range users {
+		if u.Info.Banned {
+			bannedCount++
+		} else {
+			activeCount++
+		}
+	}
+
 	var sb strings.Builder
-	sb.WriteString("*📋 User List*\n━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString(fmt.Sprintf("*📋 User List*\n━━━━━━━━━━━━━━━━━━━━\n"))
+	sb.WriteString(fmt.Sprintf("👥 Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	limit := 50
 	if len(users) < limit {
@@ -5000,8 +5043,8 @@ func handleUserListCommand(update tgbotapi.Update) {
 		if u.Info.Username != "" {
 			name = "@" + u.Info.Username
 		}
-		sb.WriteString(fmt.Sprintf("%s %s | `%d` | %d scans\n",
-			status, name, u.ID, u.Info.Scans))
+		sb.WriteString(fmt.Sprintf("%d. %s %s | `%d` | %d scans\n",
+			i+1, status, name, u.ID, u.Info.Scans))
 	}
 
 	if len(users) > 50 {
