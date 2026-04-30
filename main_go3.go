@@ -4419,7 +4419,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 	}
 
-	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") {
+	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cfgval" && !strings.HasPrefix(data, "cfg_") {
 		bot.Send(tgbotapi.NewCallback(callback.ID, "⚠️ Subscription Required!"))
 
 		msg := tgbotapi.NewMessage(chatID, "🚫 *ACCESS RESTRICTED*\n━━━━━━━━━━━━━━━━━━━━\n\nYou must join our official channel to use this bot.\n\nTarget: @supremebughost\n━━━━━━━━━━━━━━━━━━━━")
@@ -4566,7 +4566,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		go executeMassScan(chatID, sentMsg.MessageID, hosts, []int{443, 80, 8080})
 		clearSessionState(chatID)
 
-		// Step by Step
 	case "cfg_step":
 		startStepByStep(chatID, callback.Message.MessageID)
 		return
@@ -4588,7 +4587,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		showStepPrompt(chatID, callback.Message.MessageID, 4, config)
 		return
 
-	// From Scan Result
 	case "cfg_scan":
 		startFromScanResult(chatID, callback.Message.MessageID)
 		return
@@ -4645,9 +4643,6 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		}
 
 	default:
-		// =============================================
-		// AUTO PAYLOAD TEST FROM SCAN RESULT
-		// =============================================
 		if strings.HasPrefix(data, "payload_scan:") {
 			target := strings.TrimPrefix(data, "payload_scan:")
 			bot.Send(tgbotapi.NewCallback(callback.ID, "💉 Starting payload test..."))
