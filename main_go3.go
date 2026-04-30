@@ -4536,7 +4536,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 
-	case "menu_config":
+	case "menu_cfgval":
 		showConfigValidatorMenu(chatID, callback.Message.MessageID)
 		return
 
@@ -4957,20 +4957,26 @@ func handleUsersCommand(update tgbotapi.Update) {
 	uptimeStr := formatDuration(uptime)
 
 	var sb strings.Builder
-	sb.WriteString("```\n")
-	sb.WriteString("╔═══════════════════════════╗\n")
-	sb.WriteString("║   PARAGON BOT STATS       ║\n")
-	sb.WriteString("╠═══════════════════════════╣\n")
-	sb.WriteString(fmt.Sprintf("║ 👥 Users        : %-5d  ║\n", totalUsers))
-	sb.WriteString(fmt.Sprintf("║ ✅ Active       : %-5d  ║\n", activeCount))
-	sb.WriteString(fmt.Sprintf("║ 🚫 Banned       : %-5d  ║\n", bannedCount))
-	sb.WriteString(fmt.Sprintf("║ 🔍 Scans        : %-5d  ║\n", totalScans))
-	sb.WriteString(fmt.Sprintf("║ ⏱️  Uptime      : %-5s  ║\n", uptimeStr))
-	sb.WriteString(fmt.Sprintf("║ 📦 Version     : %-5s  ║\n", version))
-	sb.WriteString("╚═══════════════════════════╝\n")
-	sb.WriteString("```")
+	sb.WriteString("*📊 PARAGON BOT STATS*\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString(fmt.Sprintf("👥 *Total Users:* `%d`\n", totalUsers))
+	sb.WriteString(fmt.Sprintf("   ✅ Active: `%d`\n", activeCount))
+	sb.WriteString(fmt.Sprintf("   🚫 Banned: `%d`\n", bannedCount))
+	sb.WriteString(fmt.Sprintf("🔍 *Total Scans:* `%d`\n", totalScans))
+	sb.WriteString(fmt.Sprintf("⏱️ *Uptime:* `%s`\n", uptimeStr))
+	sb.WriteString(fmt.Sprintf("📦 *Version:* `%s`\n", version))
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━")
 
-	bot.Send(tgbotapi.NewMessage(chatID, sb.String()))
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh Stats", "menu_stats"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, sb.String())
+	msg.ParseMode = "MarkdownV2"
+	msg.ReplyMarkup = &keyboard
+	bot.Send(msg)
 }
 
 func formatDuration(d time.Duration) string {
@@ -5012,7 +5018,6 @@ func handleUserListCommand(update tgbotapi.Update) {
 		return users[i].Info.Scans > users[j].Info.Scans
 	})
 
-	// Count active & banned
 	activeCount := 0
 	bannedCount := 0
 	for _, u := range users {
@@ -5024,8 +5029,9 @@ func handleUserListCommand(update tgbotapi.Update) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("*📋 User List*\n━━━━━━━━━━━━━━━━━━━━\n"))
-	sb.WriteString(fmt.Sprintf("👥 Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
+	sb.WriteString("*📋 USER LIST*\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString(fmt.Sprintf("👥 Total: `%d` | ✅ Active: `%d` | 🚫 Banned: `%d`\n", len(users), activeCount, bannedCount))
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	limit := 50
@@ -5043,7 +5049,7 @@ func handleUserListCommand(update tgbotapi.Update) {
 		if u.Info.Username != "" {
 			name = "@" + u.Info.Username
 		}
-		sb.WriteString(fmt.Sprintf("%d. %s %s | `%d` | %d scans\n",
+		sb.WriteString(fmt.Sprintf("%d\\. %s %s \\| `%d` \\| %d scans\n",
 			i+1, status, name, u.ID, u.Info.Scans))
 	}
 
@@ -5051,7 +5057,16 @@ func handleUserListCommand(update tgbotapi.Update) {
 		sb.WriteString(fmt.Sprintf("\n_...and %d more_", len(users)-50))
 	}
 
-	bot.Send(tgbotapi.NewMessage(chatID, sb.String()))
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh", "menu_userlist"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, sb.String())
+	msg.ParseMode = "MarkdownV2"
+	msg.ReplyMarkup = &keyboard
+	bot.Send(msg)
 }
 
 // =============================================================================
