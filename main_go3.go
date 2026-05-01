@@ -3849,7 +3849,6 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
-	// 1. Subscription Check - Ikut Style Asal Kau (Markdown)
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3860,35 +3859,35 @@ func handleStart(update tgbotapi.Update) {
 			),
 		)
 
-		banner := "⚠️ *SUBSCRIPTION REQUIRED*\n" +
+		banner := "*⚠️ SUBSCRIPTION REQUIRED*\n" +
 			"━━━━━━━━━━━━━━━━━━━━\n" +
 			"*Welcome to PARAGON SNI Pro*\n\n" +
-			"Please join our channel to keep the engine running and get the latest bug list."
+			"Please join our channel to keep the engine running\\."
 
 		msg := tgbotapi.NewMessage(chatID, banner)
-		msg.ParseMode = "Markdown"
+		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = &keyboard
 		bot.Send(msg)
 		return
 	}
 
-	// 2. Main Menu - Fix Syntax & Match System
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
+	escapedAuthor := escapeMarkdownV2("@" + author)
+	escapedVersion := escapeMarkdownV2(version)
 
-	// Guna font Wide tapi dalam format Markdown supaya tak crash
-	mainMenu := "*P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + version + "*\n" +
+	mainMenu := "*P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + escapedVersion + "*\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"*Uptime :* `" + uptimeStr + "`\n" +
-		"*Engine :* `Go High-Performance`\n" +
+		"*Engine :* `Go High\\-Performance`\n" +
 		"*Status :* `Operational`\n" +
-		"*Author :* `@" + author + "`\n\n" +
-		"_High-Performance SNI Scanner Engine_\n" +
+		"*Author :* `" + escapedAuthor + "`\n\n" +
+		"_High\\-Performance SNI Scanner Engine_\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"Select an option below:"
 
 	msg := tgbotapi.NewMessage(chatID, mainMenu)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = getMainMenuKeyboard()
 
 	bot.Send(msg)
@@ -4174,19 +4173,14 @@ func executeSingleScan(chatID int64, target string) {
 
 		priority, qualityScore := calculateScore(detectLabel, info)
 
-		// =============================================
-		// DEEP VERIFY DENGAN FULL DATA UPDATE
-		// =============================================
+		// DEEP VERIFY
 		deepVerifyResult := ""
 
 		if priority == "STRONG" {
 			updateStatus(chatID, msgID, "🔬 *Step 4:* Deep verifying connection...")
-
 			verified := deepVerify(host, ip, finalPort, detectLabel, info)
 
 			if verified.IsWorking && verified.QualityScore >= 50 {
-
-				// Update detectLabel based on deep verify result
 				vu := strings.ToUpper(verified.VerifiedBug)
 				switch {
 				case strings.Contains(vu, "WEBSOCKET"):
@@ -4203,7 +4197,6 @@ func executeSingleScan(chatID int64, target string) {
 					detectLabel = "REALITY"
 				}
 
-				// Update info dengan data dari deep verify
 				if verified.WorkingHeader != nil {
 					if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
 						info.CommonName = sni
@@ -4213,7 +4206,6 @@ func executeSingleScan(chatID int64, target string) {
 					}
 				}
 
-				// Recalculate score dengan weight
 				qualityScore = (qualityScore + verified.QualityScore) / 2
 				if qualityScore > 100 {
 					qualityScore = 100
@@ -4221,14 +4213,11 @@ func executeSingleScan(chatID int64, target string) {
 
 				deepVerifyResult = fmt.Sprintf("✅ Deep Verify : %s (%d/100)", verified.VerifiedBug, verified.QualityScore)
 				priority = "STRONG"
-
 			} else {
-				// Failed deep verify - downgrade ke WEAK
 				errorMsg := verified.ErrorMessage
 				if errorMsg == "" {
 					errorMsg = "No valid response"
 				}
-
 				deepVerifyResult = fmt.Sprintf("❌ Deep Verify : FAILED (%s)", errorMsg)
 				priority = "WEAK"
 				qualityScore = qualityScore / 4
@@ -4238,9 +4227,7 @@ func executeSingleScan(chatID int64, target string) {
 			}
 		}
 
-		// isVulnerable hanya TRUE kalau STRONG lepas deep verify
 		isVulnerable := (priority == "STRONG")
-
 		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult)
 
 		resultCache.Set(cacheKey, res, 5*time.Minute)
@@ -4254,10 +4241,6 @@ func executeSingleScan(chatID int64, target string) {
 		finalPriority := <-resultPriority
 		finalScore := <-resultScore
 
-		// =============================================
-		// DYNAMIC KEYBOARD — SHOW PAYLOAD TEST BUTTON
-		// IF SCORE >= 80 & PRIORITY = STRONG
-		// =============================================
 		var replyMarkup *tgbotapi.InlineKeyboardMarkup
 
 		if finalPriority == "STRONG" && finalScore >= 80 {
@@ -4279,9 +4262,10 @@ func executeSingleScan(chatID int64, target string) {
 			)
 			replyMarkup = &keyboard
 
-			// Save target to session for payload test
-			session := getSession(chatID)
-			session.TempData["payload_target"] = target
+			// Save target for payload test & config validator
+			sess := getSession(chatID)
+			sess.TempData["payload_target"] = target
+			sess.TempData["last_scan_target"] = target
 		} else {
 			replyMarkup = getMainMenuKeyboard()
 		}
@@ -4294,8 +4278,6 @@ func executeSingleScan(chatID int64, target string) {
 	case <-ctx.Done():
 		updateStatus(chatID, msgID, "❌ *Scan Timeout*")
 	}
-	session := getSession(chatID)
-	session.TempData["last_scan_target"] = target
 
 	clearSessionState(chatID)
 }
