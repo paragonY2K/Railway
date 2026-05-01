@@ -3849,7 +3849,7 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
-	// 1. Subscription Check - Elite Style
+	// 1. Subscription Check - Ikut Style Asal Kau (Markdown)
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3860,45 +3860,37 @@ func handleStart(update tgbotapi.Update) {
 			),
 		)
 
-		banner := "<code>" +
-			"╭──────────────────────────╮\n" +
-			"│   SUBSCRIPTION REQUIRED  │\n" +
-			"╰──────────────────────────╯</code>\n\n" +
-			"<b>👋 Welcome to PARAGON SNI Pro!</b>\n" +
-			"━━━━━━━━━━━━━━━━━━━━\n\n" +
-			"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n" +
-			"👉 Click below to join, then press the button to start."
+		banner := "⚠️ *SUBSCRIPTION REQUIRED*\n" +
+			"━━━━━━━━━━━━━━━━━━━━\n" +
+			"*Welcome to PARAGON SNI Pro*\n\n" +
+			"Please join our channel to keep the engine running and get the latest bug list."
 
 		msg := tgbotapi.NewMessage(chatID, banner)
-		msg.ParseMode = "HTML"
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = &keyboard
 		bot.Send(msg)
 		return
 	}
 
-	// 2. Main Menu Logic
+	// 2. Main Menu - Fix Syntax & Match System
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
 
-	safeVersion := html.EscapeString(version)
-	safeAuthor := html.EscapeString(author)
-
-	// Dashboard Style - Clean & Smart
-	mainMenu := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
-		"<code>──────────────────────────</code>\n" +
-		"<b>Uptime :</b> <code>" + uptimeStr + "</code>\n" +
-		"<b>Engine :</b> <code>Go High-Performance</code>\n" +
-		"<b>Status :</b> <code>Operational</code>\n" +
-		"<b>Author :</b> <code>@" + safeAuthor + "</code>\n\n" +
-		"<i>High-Performance SNI Scanner Engine</i>\n" +
-		"<code>──────────────────────────</code>\n" +
+	// Guna font Wide tapi dalam format Markdown supaya tak crash
+	mainMenu := "*P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + version + "*\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"*Uptime :* `" + uptimeStr + "`\n" +
+		"*Engine :* `Go High-Performance`\n" +
+		"*Status :* `Operational`\n" +
+		"*Author :* `@" + author + "`\n\n" +
+		"_High-Performance SNI Scanner Engine_\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"Select an option below:"
 
-	keyboard := getMainMenuKeyboard()
-
 	msg := tgbotapi.NewMessage(chatID, mainMenu)
-	msg.ParseMode = "HTML"
-	msg.ReplyMarkup = keyboard
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = getMainMenuKeyboard()
+
 	bot.Send(msg)
 }
 
