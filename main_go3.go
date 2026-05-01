@@ -3945,6 +3945,10 @@ func handleUserListCommand(update tgbotapi.Update) {
 		}
 	}
 
+	// Hantar mesej kosong dulu (SELEPAS semua logic!)
+	loadingMsg := tgbotapi.NewMessage(chatID, "⏳ Loading...")
+	sentMsg, _ := bot.Send(loadingMsg)
+
 	var sb strings.Builder
 	sb.WriteString("```\n")
 	sb.WriteString("╭──────────────────────────╮\n")
@@ -4003,9 +4007,10 @@ func handleUserListCommand(update tgbotapi.Update) {
 		),
 	)
 
-	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ReplyMarkup = keyboard
-	bot.Send(msg)
+	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	bot.Send(edit)
 }
 
 func handleHWID(update tgbotapi.Update) {
