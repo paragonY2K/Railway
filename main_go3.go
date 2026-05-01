@@ -3849,6 +3849,7 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
+	// 1. Subscription Check - Elite Style
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3859,53 +3860,44 @@ func handleStart(update tgbotapi.Update) {
 			),
 		)
 
-		msg := tgbotapi.NewMessage(chatID,
-			"👋 *Welcome to PARAGON SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-				"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n"+
-				"👉 Click below to join, then press the button to start.")
-		msg.ParseMode = "Markdown"
+		banner := "<code>" +
+			"╭──────────────────────────╮\n" +
+			"│   SUBSCRIPTION REQUIRED  │\n" +
+			"╰──────────────────────────╯</code>\n\n" +
+			"<b>👋 Welcome to PARAGON SNI Pro!</b>\n" +
+			"━━━━━━━━━━━━━━━━━━━━\n\n" +
+			"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n" +
+			"👉 Click below to join, then press the button to start."
+
+		msg := tgbotapi.NewMessage(chatID, banner)
+		msg.ParseMode = "HTML"
 		msg.ReplyMarkup = &keyboard
 		bot.Send(msg)
 		return
 	}
 
+	// 2. Main Menu Logic
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
 
-	var sb strings.Builder
-	sb.WriteString("*⚡ PARAGON SNI PRO*\n")
-	sb.WriteString(fmt.Sprintf("*Version:* `%s`\n", version))
-	sb.WriteString(fmt.Sprintf("*Uptime:* `%s`\n", uptimeStr))
-	sb.WriteString(fmt.Sprintf("*Dev:* @%s\n\n", author))
-	sb.WriteString("_High-Performance SNI Scanner Engine_\n")
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
-	sb.WriteString("Select an option:")
+	safeVersion := html.EscapeString(version)
+	safeAuthor := html.EscapeString(author)
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Single Scan", "menu_single"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 Mass Scan", "menu_mass"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🌐 CIDR Scan", "menu_cidr"),
-			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
-			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("💉 Payload Test", "menu_payload"),
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ Config Validator", "menu_cfgval"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
-			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
-		),
-	)
+	// Dashboard Style - Clean & Smart
+	mainMenu := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"<b>Uptime :</b> <code>" + uptimeStr + "</code>\n" +
+		"<b>Engine :</b> <code>Go High-Performance</code>\n" +
+		"<b>Status :</b> <code>Operational</code>\n" +
+		"<b>Author :</b> <code>@" + safeAuthor + "</code>\n\n" +
+		"<i>High-Performance SNI Scanner Engine</i>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"Select an option below:"
 
-	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ParseMode = "MarkdownV2"
+	keyboard := getMainMenuKeyboard()
+
+	msg := tgbotapi.NewMessage(chatID, mainMenu)
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
@@ -3945,21 +3937,18 @@ func handleUserListCommand(update tgbotapi.Update) {
 		}
 	}
 
-	// Hantar mesej kosong dulu (SELEPAS semua logic!)
+	// Hantar loading dulu
 	loadingMsg := tgbotapi.NewMessage(chatID, "⏳ Loading...")
 	sentMsg, _ := bot.Send(loadingMsg)
 
 	var sb strings.Builder
-	sb.WriteString("```\n")
-	sb.WriteString("╭──────────────────────────╮\n")
-	sb.WriteString("│      👥 USER LIST        │\n")
-	sb.WriteString("│      ⚡ PARAGON PRO      │\n")
-	sb.WriteString("╰──────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  U S E R  L I S T</b>\n")
+	sb.WriteString("<code>──────────────────────────</code>\n")
+	sb.WriteString(fmt.Sprintf("<b>Total:</b> <code>%d</code> | <b>Active:</b> <code>%d</code> | <b>Banned:</b> <code>%d</code>\n", len(users), activeCount, bannedCount))
+	sb.WriteString("<code>──────────────────────────</code>\n\n")
 
 	if len(users) == 0 {
-		sb.WriteString("      No users found.      \n")
+		sb.WriteString("<i>No users found.</i>\n")
 	} else {
 		limit := 50
 		if len(users) < limit {
@@ -3984,19 +3973,20 @@ func handleUserListCommand(update tgbotapi.Update) {
 				username = "@" + username
 			}
 
-			sb.WriteString(fmt.Sprintf("%d. %s %-15s\n", i+1, statusEmoji, username))
-			sb.WriteString(fmt.Sprintf("   ID: %-11d | %d scans\n", u.ID, u.Info.Scans))
+			safeUser := html.EscapeString(username)
+
+			sb.WriteString(fmt.Sprintf("<b>%d.</b> %s <code>%s</code>\n", i+1, statusEmoji, safeUser))
+			sb.WriteString(fmt.Sprintf("   <b>ID:</b> <code>%d</code> | <b>Scans:</b> <code>%d</code>\n", u.ID, u.Info.Scans))
 
 			if i < limit-1 {
-				sb.WriteString("   ────────────────────────\n")
+				sb.WriteString("   <code>────────────────────</code>\n")
 			}
 		}
 
 		if len(users) > 50 {
-			sb.WriteString(fmt.Sprintf("\n   ...and %d more\n", len(users)-50))
+			sb.WriteString(fmt.Sprintf("\n<i>...and %d more</i>\n", len(users)-50))
 		}
 	}
-	sb.WriteString("```")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -4008,7 +3998,7 @@ func handleUserListCommand(update tgbotapi.Update) {
 	)
 
 	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
-	edit.ParseMode = "Markdown"
+	edit.ParseMode = "HTML"
 	edit.ReplyMarkup = &keyboard
 	bot.Send(edit)
 }
@@ -4039,26 +4029,23 @@ func handleAbout(update tgbotapi.Update) {
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	about := "P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "\n" +
-		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"Developer : @" + safeAuthor + "\n" +
-		"Community : @supremebughost\n" +
-		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"🚀 CORE FEATURES\n" +
+	about := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"<b>Developer :</b> <code>@" + safeAuthor + "</code>\n" +
+		"<b>Community :</b> <code>@supremebughost</code>\n" +
+		"<code>──────────────────────────</code>\n" +
+		"<b>🚀 CORE FEATURES</b>\n" +
 		"• Multi-protocol (TLS/HTTP/WS)\n" +
 		"• CDN/WAF Bypass Detection\n" +
 		"• Subdomain Enumeration\n" +
 		"• CIDR Mass Scanning\n" +
-		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"Advanced Network Reconnaissance Tool"
+		"<code>──────────────────────────</code>\n" +
+		"<i>Advanced Network Reconnaissance Tool</i>"
 
 	msg := tgbotapi.NewMessage(chatID, about)
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
-
-	_, err := bot.Send(msg)
-	if err != nil {
-		log.Printf("Error sending About: %v", err)
-	}
+	bot.Send(msg)
 }
 
 func executeSingleScan(chatID int64, target string) {
