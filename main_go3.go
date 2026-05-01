@@ -5272,3 +5272,4 @@ func updateStatus(chatID int64, messageID int, text string) {
 		log.Printf("Update Error: %v", err)
 	}
 }
+// force refresh
