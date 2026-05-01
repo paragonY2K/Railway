@@ -3849,7 +3849,6 @@ func sendTyping(chatID int64) {
 func handleStart(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
-	// 1. Subscription Check
 	if !isSubscribed(update.Message.From.ID) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -3859,39 +3858,152 @@ func handleStart(update tgbotapi.Update) {
 				tgbotapi.NewInlineKeyboardButtonData("✅ I've Joined", "check_subscription"),
 			),
 		)
-		banner := "<b>[ ⚠️ SUBSCRIPTION REQUIRED ]</b>\n" +
-			"<code>──────────────────────────</code>\n" +
-			"<b>Welcome to PARAGON SNI Pro</b>\n\n" +
-			"Please join our channel to keep the engine running and get the latest bug list."
 
-		msg := tgbotapi.NewMessage(chatID, banner)
-		msg.ParseMode = "HTML"
+		msg := tgbotapi.NewMessage(chatID,
+			"👋 *Welcome to PARAGON SNI Pro!*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+				"📢 To keep this bot running and get the latest bughost lists, please join our official channel.\n\n"+
+				"👉 Click below to join, then press the button to start.")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = &keyboard
 		bot.Send(msg)
 		return
 	}
 
-	// 2. Main Menu Logic
 	uptime := time.Since(startTime)
 	uptimeStr := formatDuration(uptime)
-	safeVersion := html.EscapeString(version)
-	safeAuthor := html.EscapeString(author)
 
-	// Syntax dah fix (tanda + dan " dah betul)
-	mainMenu := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
-		"<code>──────────────────────────</code>\n" +
-		"<b>Uptime :</b> <code>" + uptimeStr + "</code>\n" +
-		"<b>Engine :</b> <code>Go High-Performance</code>\n" +
-		"<b>Status :</b> <code>Operational</code>\n" +
-		"<b>Author :</b> <code>@" + safeAuthor + "</code>\n\n" +
-		"<i>High-Performance SNI Scanner Engine</i>\n" +
-		"<code>──────────────────────────</code>\n" +
-		"Select an option below:"
+	var sb strings.Builder
+	sb.WriteString("*⚡ PARAGON SNI PRO*\n")
+	sb.WriteString(fmt.Sprintf("*Version:* `%s`\n", version))
+	sb.WriteString(fmt.Sprintf("*Uptime:* `%s`\n", uptimeStr))
+	sb.WriteString(fmt.Sprintf("*Dev:* @%s\n\n", author))
+	sb.WriteString("_High-Performance SNI Scanner Engine_\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("Select an option:")
 
-	keyboard := getMainMenuKeyboard()
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Single Scan", "menu_single"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Mass Scan", "menu_mass"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🌐 CIDR Scan", "menu_cidr"),
+			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
+			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💉 Payload Test", "menu_payload"),
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Config Validator", "menu_cfgval"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
+			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
+		),
+	)
 
-	msg := tgbotapi.NewMessage(chatID, mainMenu)
-	msg.ParseMode = "HTML"
+	msg := tgbotapi.NewMessage(chatID, sb.String())
+	msg.ParseMode = "MarkdownV2"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func handleUserListCommand(update tgbotapi.Update) {
+	chatID := update.Message.Chat.ID
+	if chatID != adminChatID {
+		return
+	}
+
+	umMutex.RLock()
+	defer umMutex.RUnlock()
+
+	type userEntry struct {
+		ID   int64
+		Info *UserInfo
+	}
+	var users []userEntry
+	for id, u := range userData.Users {
+		users = append(users, userEntry{ID: id, Info: u})
+	}
+
+	sort.Slice(users, func(i, j int) bool {
+		if users[i].Info.Banned != users[j].Info.Banned {
+			return !users[i].Info.Banned
+		}
+		return users[i].Info.Scans > users[j].Info.Scans
+	})
+
+	activeCount := 0
+	bannedCount := 0
+	for _, u := range users {
+		if u.Info.Banned {
+			bannedCount++
+		} else {
+			activeCount++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("```\n")
+	sb.WriteString("╭──────────────────────────╮\n")
+	sb.WriteString("│      👥 USER LIST        │\n")
+	sb.WriteString("│      ⚡ PARAGON PRO      │\n")
+	sb.WriteString("╰──────────────────────────╯\n\n")
+	sb.WriteString(fmt.Sprintf("Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	if len(users) == 0 {
+		sb.WriteString("      No users found.      \n")
+	} else {
+		limit := 50
+		if len(users) < limit {
+			limit = len(users)
+		}
+
+		for i := 0; i < limit; i++ {
+			u := users[i]
+			statusEmoji := "✅"
+			if u.Info.Banned {
+				statusEmoji = "🚫"
+			}
+
+			username := u.Info.Username
+			if username == "" {
+				username = u.Info.FirstName
+			}
+			if username == "" {
+				username = "No_Name"
+			}
+			if !strings.HasPrefix(username, "@") {
+				username = "@" + username
+			}
+
+			sb.WriteString(fmt.Sprintf("%d. %s %-15s\n", i+1, statusEmoji, username))
+			sb.WriteString(fmt.Sprintf("   ID: %-11d | %d scans\n", u.ID, u.Info.Scans))
+
+			if i < limit-1 {
+				sb.WriteString("   ────────────────────────\n")
+			}
+		}
+
+		if len(users) > 50 {
+			sb.WriteString(fmt.Sprintf("\n   ...and %d more\n", len(users)-50))
+		}
+	}
+	sb.WriteString("```")
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh", "menu_userlist"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, sb.String())
 	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
@@ -3922,21 +4034,20 @@ func handleAbout(update tgbotapi.Update) {
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	about := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
+	about := "P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"<b>Developer :</b> @" + safeAuthor + "\n" +
-		"<b>Community :</b> @supremebughost\n" +
+		"Developer : @" + safeAuthor + "\n" +
+		"Community : @supremebughost\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"<b>🚀 CORE FEATURES</b>\n" +
+		"🚀 CORE FEATURES\n" +
 		"• Multi-protocol (TLS/HTTP/WS)\n" +
 		"• CDN/WAF Bypass Detection\n" +
 		"• Subdomain Enumeration\n" +
 		"• CIDR Mass Scanning\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
-		"<i>Advanced Network Reconnaissance Tool</i>"
+		"Advanced Network Reconnaissance Tool"
 
 	msg := tgbotapi.NewMessage(chatID, about)
-	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
 
 	_, err := bot.Send(msg)
@@ -5009,105 +5120,6 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm", minutes)
 }
 
-func handleUserListCommand(update tgbotapi.Update) {
-	chatID := update.Message.Chat.ID
-	if chatID != adminChatID {
-		return
-	}
-
-	umMutex.RLock()
-	defer umMutex.RUnlock()
-
-	type userEntry struct {
-		ID   int64
-		Info *UserInfo
-	}
-	var users []userEntry
-	for id, u := range userData.Users {
-		users = append(users, userEntry{ID: id, Info: u})
-	}
-
-	sort.Slice(users, func(i, j int) bool {
-		if users[i].Info.Banned != users[j].Info.Banned {
-			return !users[i].Info.Banned
-		}
-		return users[i].Info.Scans > users[j].Info.Scans
-	})
-
-	activeCount := 0
-	bannedCount := 0
-	for _, u := range users {
-		if u.Info.Banned {
-			bannedCount++
-		} else {
-			activeCount++
-		}
-	}
-
-	var sb strings.Builder
-	sb.WriteString("```\n")
-	sb.WriteString("╭──────────────────────────╮\n")
-	sb.WriteString("│      👥 USER LIST        │\n")
-	sb.WriteString("│      ⚡ PARAGON PRO      │\n")
-	sb.WriteString("╰──────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-
-	if len(users) == 0 {
-		sb.WriteString("      No users found.      \n")
-	} else {
-		limit := 50
-		if len(users) < limit {
-			limit = len(users)
-		}
-
-		for i := 0; i < limit; i++ {
-			u := users[i]
-			statusEmoji := "✅"
-			if u.Info.Banned {
-				statusEmoji = "🚫"
-			}
-
-			username := u.Info.Username
-			if username == "" {
-				username = u.Info.FirstName
-			}
-			if username == "" {
-				username = "No_Name"
-			}
-			if !strings.HasPrefix(username, "@") {
-				username = "@" + username
-			}
-
-			sb.WriteString(fmt.Sprintf("%d. %s %-15s\n", i+1, statusEmoji, username))
-			sb.WriteString(fmt.Sprintf("   ID: %-11d | %d scans\n", u.ID, u.Info.Scans))
-
-			if i < limit-1 {
-				sb.WriteString("   ────────────────────────\n")
-			}
-		}
-
-		if len(users) > 50 {
-			sb.WriteString(fmt.Sprintf("\n   ...and %d more\n", len(users)-50))
-		}
-	}
-	sb.WriteString("```")
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh", "menu_userlist"),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ReplyMarkup = keyboard
-
-	_, err := bot.Send(msg)
-	if err != nil {
-		log.Printf("Error sending UserList: %v", err)
-	}
-}
-
 // =============================================================================
 // MAIN FUNCTION
 // =============================================================================
@@ -5272,4 +5284,3 @@ func updateStatus(chatID int64, messageID int, text string) {
 		log.Printf("Update Error: %v", err)
 	}
 }
-// force refresh
