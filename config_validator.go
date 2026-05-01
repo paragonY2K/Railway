@@ -106,8 +106,8 @@ func showQuickTestPrompt(chatID int64, messageID int) {
 		"Format: proxy:port|sni|payload|target\n\n" +
 		"Examples:\n" +
 		"• thebestyou.com:80 (proxy only)\n" +
-		"• thebestyou.com:80|nexus.u.com.my (proxy+sni)\n" +
-		"• -|nexus.u.com.my|GET /... (sni+payload)\n" +
+		"• thebestyou.com:80|homeaccount.orange.com (proxy+sni)\n" +
+		"• -|homeaccount.orange.com|GET /... (sni+payload)\n" +
 		"• thebestyou.com:80|-|-|vps.com (proxy+target)\n\n" +
 		"Use '-' to skip a field\n```"
 

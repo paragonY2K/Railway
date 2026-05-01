@@ -3922,18 +3922,17 @@ func handleAbout(update tgbotapi.Update) {
 	safeVersion := html.EscapeString(version)
 	safeAuthor := html.EscapeString(author)
 
-	// Guna font Wide (Small Caps) yang sama macam handleStart
 	about := "<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  S N I  P ʀ ᴏ  v" + safeVersion + "</b>\n" +
-		"<code>──────────────────────────</code>\n" +
-		"<b>Developer :</b> <code>@" + safeAuthor + "</code>\n" +
-		"<b>Community :</b> <code>@supremebughost</code>\n" +
-		"<code>──────────────────────────</code>\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"<b>Developer :</b> @" + safeAuthor + "\n" +
+		"<b>Community :</b> @supremebughost\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"<b>🚀 CORE FEATURES</b>\n" +
-		"• <code>Multi-protocol</code> (TLS/HTTP/WS)\n" +
-		"• <code>CDN/WAF</code> Bypass Detection\n" +
-		"• <code>Subdomain</code> Enumeration\n" +
-		"• <code>CIDR</code> Mass Scanning\n" +
-		"<code>──────────────────────────</code>\n" +
+		"• Multi-protocol (TLS/HTTP/WS)\n" +
+		"• CDN/WAF Bypass Detection\n" +
+		"• Subdomain Enumeration\n" +
+		"• CIDR Mass Scanning\n" +
+		"━━━━━━━━━━━━━━━━━━━━\n" +
 		"<i>Advanced Network Reconnaissance Tool</i>"
 
 	msg := tgbotapi.NewMessage(chatID, about)
@@ -5047,33 +5046,50 @@ func handleUserListCommand(update tgbotapi.Update) {
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│     📋 USER LIST        │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("👥 Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("╭──────────────────────────╮\n")
+	sb.WriteString("│      👥 USER LIST        │\n")
+	sb.WriteString("│      ⚡ PARAGON PRO      │\n")
+	sb.WriteString("╰──────────────────────────╯\n\n")
+	sb.WriteString(fmt.Sprintf("Total: %d | ✅ Active: %d | 🚫 Banned: %d\n", len(users), activeCount, bannedCount))
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
-	limit := 50
-	if len(users) < limit {
-		limit = len(users)
-	}
-
-	for i := 0; i < limit; i++ {
-		u := users[i]
-		status := "✅"
-		if u.Info.Banned {
-			status = "🚫"
+	if len(users) == 0 {
+		sb.WriteString("      No users found.      \n")
+	} else {
+		limit := 50
+		if len(users) < limit {
+			limit = len(users)
 		}
-		name := u.Info.FirstName
-		if u.Info.Username != "" {
-			name = "@" + u.Info.Username
-		}
-		sb.WriteString(fmt.Sprintf("%d. %s %s | %d | %d scans\n",
-			i+1, status, name, u.ID, u.Info.Scans))
-	}
 
-	if len(users) > 50 {
-		sb.WriteString(fmt.Sprintf("\n...and %d more\n", len(users)-50))
+		for i := 0; i < limit; i++ {
+			u := users[i]
+			statusEmoji := "✅"
+			if u.Info.Banned {
+				statusEmoji = "🚫"
+			}
+
+			username := u.Info.Username
+			if username == "" {
+				username = u.Info.FirstName
+			}
+			if username == "" {
+				username = "No_Name"
+			}
+			if !strings.HasPrefix(username, "@") {
+				username = "@" + username
+			}
+
+			sb.WriteString(fmt.Sprintf("%d. %s %-15s\n", i+1, statusEmoji, username))
+			sb.WriteString(fmt.Sprintf("   ID: %-11d | %d scans\n", u.ID, u.Info.Scans))
+
+			if i < limit-1 {
+				sb.WriteString("   ────────────────────────\n")
+			}
+		}
+
+		if len(users) > 50 {
+			sb.WriteString(fmt.Sprintf("\n   ...and %d more\n", len(users)-50))
+		}
 	}
 	sb.WriteString("```")
 
@@ -5084,8 +5100,12 @@ func handleUserListCommand(update tgbotapi.Update) {
 	)
 
 	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ReplyMarkup = &keyboard
-	bot.Send(msg)
+	msg.ReplyMarkup = keyboard
+
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("Error sending UserList: %v", err)
+	}
 }
 
 // =============================================================================
