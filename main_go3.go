@@ -83,7 +83,6 @@ func logError(context string, err error) {
 		logger.Printf("   Stack: %s", string(debug.Stack()))
 	}
 
-	// Always print to stderr for Railway capture
 	fmt.Fprintf(os.Stderr, "%s\n", msg)
 }
 
@@ -98,7 +97,6 @@ func logInfo(format string, args ...interface{}) {
 }
 
 func logDebug(format string, args ...interface{}) {
-	// Only log debug if verbose mode enabled
 	if os.Getenv("DEBUG") == "true" {
 		msg := fmt.Sprintf("🔍 %s", fmt.Sprintf(format, args...))
 		if logger != nil {
@@ -228,7 +226,7 @@ func trackUserActivity(update tgbotapi.Update) {
 }
 
 // ============================================================
-// NEW: Performance logging untuk CIDR scan
+// Performance logging untuk CIDR scan
 // ============================================================
 func logScanStart(cidr string, totalIPs int, ports []int) {
 	if logger != nil {
@@ -338,7 +336,7 @@ var (
 	storagePath = os.TempDir() + "/"
 )
 
-// ==================== PREMIUM SNI WHITELIST (UNCHANGED) ====================
+// ==================== PREMIUM SNI WHITELIST ====================
 var premiumSNI = map[string]bool{
 	"h.facebook.com":                true,
 	"freebasics.com":                true,
@@ -586,7 +584,7 @@ func isNetworkError(err error) bool {
 }
 
 // =============================================================================
-// [PATCHED] LICENSE VERIFICATION - BYPASSED
+// LICENSE VERIFICATION - BYPASSED
 // =============================================================================
 
 func getHWID() string {
@@ -603,12 +601,10 @@ func getHWID() string {
 }
 
 func getSecureLink() string {
-	// [PATCHED] Return empty - license bypassed
 	return ""
 }
 
 func SupremeVerify() bool {
-	// [PATCHED] Direct bypass for Railway deployment
 	fmt.Println("✅ RAILWAY DEPLOYMENT - LICENSE BYPASSED")
 	fmt.Printf("🚀 PARAGON SNI PRO %s - Starting...\n", version)
 	return true
@@ -621,7 +617,7 @@ func visualLength(s string) int {
 }
 
 // =============================================================================
-// CORE SCANNING FUNCTIONS (100% UNCHANGED LOGIC)
+// CORE SCANNING FUNCTIONS
 // =============================================================================
 
 func getCustomDialer() *net.Dialer {
@@ -882,7 +878,6 @@ func wsProbe(host, ip string, port int) (bool, string) {
 		return false, ""
 	}
 
-	// Loop read untuk full response (elak partial read)
 	var fullResp bytes.Buffer
 	fullResp.Grow(4096)
 
@@ -1313,10 +1308,8 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 			break
 		}
 	}
-	// ← PASTIKAN ADA NI
 
 	if isBigTechNative {
-		// Still get TLS info for display
 		_, tlsInfoLocal := getTLSInfo()
 		info = tlsInfoLocal
 		if info.HTTPStatus == "" {
@@ -2588,7 +2581,6 @@ func handleMassScanFile(update tgbotapi.Update) {
 	session.TempData["mass_hosts"] = hosts
 	session.State = "awaiting_mass_ports"
 
-	// --- FIX MARKDOWN V2 (ESCAPE CHARACTERS) ---
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Use Default (443,80,8080)", "mass_ports_default"),
@@ -2598,8 +2590,6 @@ func handleMassScanFile(update tgbotapi.Update) {
 		),
 	)
 
-	// Kita guna string biasa (Markdown V1 style) tapi hantar tanpa ParseMode
-	// atau guna escape manual untuk V2
 	reportMsg := fmt.Sprintf(
 		"📊 *Loaded %d hosts*\n\n"+
 			"Enter ports to scan:\n"+
@@ -2610,12 +2600,11 @@ func handleMassScanFile(update tgbotapi.Update) {
 		len(hosts))
 
 	msg := tgbotapi.NewMessage(chatID, reportMsg)
-	msg.ParseMode = "Markdown" // Tukar ke Markdown biasa (V1) supaya selamat
+	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
 	_, err = bot.Send(msg)
 	if err != nil {
-		// Fallback kalau V1/V2 pun mampus
 		msg.ParseMode = ""
 		bot.Send(msg)
 	}
@@ -2823,7 +2812,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 	verifiedTargets := make([]map[string]string, 0)
 	failedTargets := make([]map[string]string, 0)
 
-	// Dedup strong candidates
 	seen := make(map[string]bool)
 	uniqueCandidates := make([]scanRecord, 0)
 	for _, c := range strongCandidates {
@@ -3025,7 +3013,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 		close(dvDone)
 	}
 
-	// ==================== TULIS CSV ====================
 	csvFile := filepath.Join(os.TempDir(), fmt.Sprintf("Paragon_Mass_%d.csv", time.Now().Unix()))
 	out, err := os.Create(csvFile)
 	if err == nil {
@@ -3044,7 +3031,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 		out.Close()
 	}
 
-	// ==================== FINAL REPORT ====================
 	elapsed := time.Since(startTime).Round(time.Second)
 	speed := 0.0
 	if elapsed.Seconds() > 0 {
@@ -3124,7 +3110,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 
 	updateStatus(chatID, statusMsgID, sb.String())
 
-	// Hantar CSV file
 	fileBytes, _ := os.ReadFile(csvFile)
 	if len(fileBytes) > 0 {
 		doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{
@@ -3771,6 +3756,10 @@ func getMainMenuKeyboard() *tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
 			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
 		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💬 Feedback", "menu_feedback"),
+			tgbotapi.NewInlineKeyboardButtonData("❓ Help", "menu_help"),
+		),
 	)
 	return &keyboard
 }
@@ -3928,7 +3917,6 @@ func handleUserListCommand(update tgbotapi.Update) {
 		}
 	}
 
-	// Hantar loading dulu
 	loadingMsg := tgbotapi.NewMessage(chatID, "⏳ Loading...")
 	sentMsg, _ := bot.Send(loadingMsg)
 
@@ -4312,7 +4300,6 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 	}
 	sb.WriteString(fmt.Sprintf("HTTP     : %s\n\n", statusDisplay))
 
-	// Better status classification
 	var statusIcon, statusLabel string
 	switch detectType {
 	case "H3_QUIC":
@@ -4362,7 +4349,6 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		sb.WriteString(fmt.Sprintf("SNI      : %s\n", info.CommonName))
 	}
 
-	// Score bar
 	scoreBar := ""
 	barLen := 8
 	filled := qualityScore * barLen / 100
@@ -4392,11 +4378,13 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		sb.WriteString(fmt.Sprintf("Size     : %s\n", contentDisplay))
 	}
 
-	// Deep verify result - integrated into block
 	if deepVerifyResult != "" {
 		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(deepVerifyResult)
 	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 Enjoying PARAGON? Send /feedback\n")
 
 	sb.WriteString("\n```")
 
@@ -4436,7 +4424,6 @@ func executeSubdomainScan(chatID int64, domain string) {
 		}
 	}()
 
-	// Guna function formatting baru
 	resultText := formatSubdomainResultMarkdown(domain, finalSubs)
 
 	editFinal := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, resultText)
@@ -4497,7 +4484,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 	}
 
-	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cfgval" && !strings.HasPrefix(data, "cfg_") {
+	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cfgval" && !strings.HasPrefix(data, "cfg_") && data != "menu_help" && data != "menu_feedback" {
 		bot.Send(tgbotapi.NewCallback(callback.ID, "⚠️ Subscription Required!"))
 
 		msg := tgbotapi.NewMessage(chatID, "🚫 *ACCESS RESTRICTED*\n━━━━━━━━━━━━━━━━━━━━\n\nYou must join our official channel to use this bot.\n\nTarget: @supremebughost\n━━━━━━━━━━━━━━━━━━━━")
@@ -4604,9 +4591,9 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			"`host vps` — With VPS\n"+
 			"`host vps sni` — Full custom\n\n"+
 			"📋 *Examples:*\n"+
-			"`airasia.com`\n"+
-			"`airasia.com myvps.com`\n"+
-			"`airasia.com myvps.com facebook.com`\n"+
+			"`www.speedtest.net`\n"+
+			"`www.speedtest.net myvps.com`\n"+
+			"`www.speedtest.net myvps.com facebook.com`\n"+
 			"`applynow.hdfc.bank.in:80`\n\n"+
 			"━━━━━━━━━━━━━━━━━━━━\n"+
 			"_Send host to begin..._")
@@ -4624,6 +4611,10 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	case "cfg_payload_pick":
 		showPayloadPicker(chatID, callback.Message.MessageID)
+		return
+
+	case "menu_feedback":
+		handleFeedback(update)
 		return
 
 	case "mass_ports_default":
@@ -4700,6 +4691,39 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		go executeCIDRScan(chatID, sentMsg.MessageID, cidr, ipnet, []int{443, 80})
 		clearSessionState(chatID)
 
+	case "menu_help":
+		helpText := "<b>WELCOME TO PARAGON SNI PRO</b>\n" +
+			"================================\n\n" +
+			"<b>WHAT DOES THIS BOT DO?</b>\n" +
+			"Find free internet tricks automatically\n" +
+			"no manual testing needed\n\n" +
+			"<b>QUICK START (3 STEPS):</b>\n" +
+			"1. Send: www.speedtest.net\n" +
+			"2. See result and score\n" +
+			"3. Click Test Payloads button\n" +
+			"Done. Copy payload to your app\n\n" +
+			"<b>ALL FEATURES:</b>\n" +
+			"Scan - Check if host works\n" +
+			"Payload Test - Find working payloads\n" +
+			"Config Validator - Test your setup\n" +
+			"Mass Scan - Scan 500 hosts at once\n" +
+			"Subdomain - Find related domains\n\n" +
+			"<b>TIPS:</b>\n" +
+			"Start with /scan www.speedtest.net\n" +
+			"Green = good, Red = dead\n" +
+			"Score 80+ = ready to use\n" +
+			"Join @supremebughost for help\n\n" +
+			"<b>NEED HELP?</b>\n" +
+			"Send /feedback - we will help you\n\n" +
+			"================================\n" +
+			"<b>Happy scanning</b>"
+
+		msg := tgbotapi.NewMessage(chatID, helpText)
+		msg.ParseMode = "HTML"
+		msg.ReplyMarkup = getMainMenuOnlyKeyboard()
+		bot.Send(msg)
+		return
+
 	case "menu_cancel":
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "❌ Cancelled. Returning to menu.")
@@ -4750,19 +4774,16 @@ func handleMessage(update tgbotapi.Update) {
 
 	trackUserActivity(update)
 
-	// 1. Safety & Subscription
 	if isBanned(chatID) {
 		return
 	}
 	if !isSubscribed(chatID) {
-		banner := "<code>" +
-			"╔══════════════════════════╗\n" +
-			"║      ACCESS DENIED       ║\n" +
-			"╚══════════════════════════╝</code>\n\n" +
-			"<b>🚫 ACCESS DENIED</b>\n" +
-			"━━━━━━━━━━━━━━━━━━━━\n" +
+		banner := "<b>🚫 ᴀᴄᴄᴇꜱꜱ ᴅᴇɴɪᴇᴅ</b>\n" +
+			"━━━━━━━━━━━━━━━━━━━━\n\n" +
+			"<i>Welcome to ᴘᴀʀᴀɢᴏɴ ꜱɴɪ ᴘʀᴏ</i>\n\n" +
 			"Please join our official channel to use the scanner.\n\n" +
-			"<b>Target:</b> @supremebughost"
+			"<b>🔊 Join:</b> @supremebughost\n" +
+			"━━━━━━━━━━━━━━━━━━━━"
 
 		msg := tgbotapi.NewMessage(chatID, banner)
 		msg.ParseMode = "HTML"
@@ -4770,7 +4791,6 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	// 2. Filter input
 	if text == "" && update.Message.Document == nil {
 		return
 	}
@@ -4778,7 +4798,6 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	// 3. State Handler
 	switch session.State {
 
 	case "awaiting_mass_file":
@@ -4849,6 +4868,10 @@ func handleMessage(update tgbotapi.Update) {
 	case "awaiting_reverse_target":
 		clearSessionState(chatID)
 		go executeReverseLookup(chatID, text)
+		return
+
+	case "awaiting_feedback":
+		handleFeedbackInput(update)
 		return
 
 	case "awaiting_payload_host":
@@ -4953,7 +4976,6 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	// 4. Auto-detect
 	if text != "" && strings.Contains(text, ".") && !strings.Contains(text, " ") {
 		if strings.Contains(text, "/") {
 			setSessionState(chatID, "awaiting_cidr_input")
@@ -4968,15 +4990,11 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	// 5. Main Menu
-	mainBanner := "<code>" +
-		"██████╗  █████╗ ██████╗ \n" +
-		"██╔══██╗██╔══██╗██╔══██╗\n" +
-		"██████╔╝███████║██████╔╝\n" +
-		"██╔═══╝ ██╔══██║██╔══██╗\n" +
-		"██║     ██║  ██║██║  ██║</code>\n" +
-		"<b>🔥 PARAGON SNI PRO</b>\n" +
+	mainBanner := "<b>🔥 ᴘᴀʀᴀɢᴏɴ ꜱɴɪ ᴘʀᴏ ᴠ" + version + "</b>\n" +
 		"━━━━━━━━━━━━━━━━━━━━\n" +
+		"<i>High-Performance SNI Scanner Engine</i>\n\n" +
+		"<b>👤 ᴀᴜᴛʜᴏʀ:</b> @" + author + "\n" +
+		"<b>📢 ᴄʜᴀɴɴᴇʟ:</b> @supremebughost\n\n" +
 		"Select an option below to begin:"
 
 	msg := tgbotapi.NewMessage(chatID, mainBanner)
@@ -5093,7 +5111,6 @@ func formatDuration(d time.Duration) string {
 func main() {
 	loadUserData()
 
-	// License bypass
 	if !SupremeVerify() {
 		fmt.Println("License verification failed. Exiting.")
 		os.Exit(1)
@@ -5121,6 +5138,9 @@ func main() {
 	commands := []tgbotapi.BotCommand{
 		{Command: "start", Description: "🚀 Main Menu"},
 		{Command: "scan", Description: "🔍 Single Scan"},
+		{Command: "test", Description: "💉 Payload Test"},
+		{Command: "help", Description: "❓ Quick Guide"},
+		{Command: "feedback", Description: "💬 Send Feedback"},
 		{Command: "ban", Description: "🚫 Ban user"},
 		{Command: "unban", Description: "✅ Unban user"},
 		{Command: "users", Description: "📊 Bot stats"},
@@ -5226,6 +5246,18 @@ func main() {
 						bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("🔍 Scanning: %s", args[1])))
 						go executeSingleScan(update.Message.Chat.ID, args[1])
 					}
+				case "test":
+					args := strings.SplitN(update.Message.Text, " ", 2)
+					if len(args) < 2 {
+						msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Usage: /test <host>\nExample: /test airasia.com")
+						bot.Send(msg)
+					} else {
+						go executePayloadTest(update.Message.Chat.ID, args[1])
+					}
+				case "help":
+					handleHelpCommand(update)
+				case "feedback":
+					handleFeedback(update)
 				default:
 					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Unknown command. Use /start, /scan <target>, or /cancel")
 					bot.Send(msg)
@@ -5242,11 +5274,9 @@ func updateStatus(chatID int64, messageID int, text string) {
 	editMsg.ParseMode = "Markdown"
 	_, err := bot.Send(editMsg)
 	if err != nil {
-		// Ignore "message is not modified" errors - they're harmless
 		if strings.Contains(err.Error(), "not modified") {
 			return
 		}
-		// Only log real errors
 		log.Printf("Update Error: %v", err)
 	}
 }
