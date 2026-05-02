@@ -37,13 +37,53 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 
 	certs := conn.ConnectionState().PeerCertificates
 	for _, cert := range certs {
-		if cert.Subject.CommonName != "" {
-			results <- cert.Subject.CommonName
+		// Common Name — filter wildcard + domain only
+		if cert.Subject.CommonName != "" && isValidDomain(cert.Subject.CommonName) {
+			results <- cleanWildcard(cert.Subject.CommonName)
 		}
+		// SAN — filter semua
 		for _, domain := range cert.DNSNames {
-			results <- domain
+			if isValidDomain(domain) {
+				results <- cleanWildcard(domain)
+			}
 		}
 	}
+}
+
+// Buang *. prefix
+func cleanWildcard(domain string) string {
+	if strings.HasPrefix(domain, "*.") {
+		return domain[2:]
+	}
+	return domain
+}
+
+// Check domain format valid
+func isValidDomain(s string) bool {
+	// Mesti ada dot
+	if !strings.Contains(s, ".") {
+		return false
+	}
+	// Bukan CA/Cert issuer name ( detect by spaces / panjang / caps pattern )
+	if strings.Contains(s, " ") || len(s) > 100 {
+		return false
+	}
+	// Bukan pattern CA name (mostly ada "CA", "Root", "Authority", "Validation")
+	lower := strings.ToLower(s)
+	caPatterns := []string{
+		" ca ", " root ", " authority ", " validation ",
+		" ssl ", " tls ", " rsa ", " ecc ", " ev ",
+		"digicert", "sectigo", "comodo", "thawte",
+		"geotrust", "globalsign", "godaddy", "gandicert",
+		"cloudflare tls", "encryption everywhere", "actalis",
+		"usertrust", "gts root",
+	}
+	for _, pattern := range caPatterns {
+		if strings.Contains(lower, pattern) {
+			return false
+		}
+	}
+	return true
 }
 
 func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
