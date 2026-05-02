@@ -210,8 +210,19 @@ func handleSnifferInput(update tgbotapi.Update) {
 
 	parts := strings.Fields(text)
 	if len(parts) < 1 {
-		msg := tgbotapi.NewMessage(chatID, "❌ Format: `prefix start end`\nExample: `104.16.132. 1 254`")
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭─────────────────────────╮\n"+
+			"│   🔎 DOMAIN SNIFF       │\n"+
+			"╰─────────────────────────╯\n\n"+
+			"🎯 Format: prefix start end\n\n"+
+			"📋 Examples:\n"+
+			"104.16.132. 1 254   → 254 IPs (fast)\n"+
+			"104.16.132. 1 1022  → 1022 IPs (medium)\n"+
+			"104.16.132. 1 4094  → 4094 IPs (big)\n\n"+
+			"💡 Just prefix only = auto 1-1022\n"+
+			"```")
 		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 		return
 	}
@@ -221,20 +232,27 @@ func handleSnifferInput(update tgbotapi.Update) {
 		prefix += "."
 	}
 
-	// Validate prefix ada 3 oktet (x.x.x.)
+	// Validate prefix has 3 octets (x.x.x.)
 	octets := strings.Split(strings.TrimSuffix(prefix, "."), ".")
 	if len(octets) != 3 {
-		msg := tgbotapi.NewMessage(chatID, "❌ Prefix must be in 3 segments!\n\nExample:\n`104.16.132. 1 254`\n\nYour input: `"+prefix+"`")
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"❌ Prefix must be 3 segments!\n\n"+
+			"✅ Correct: 104.16.132. 1 254\n"+
+			"❌ Wrong:   104.16. 1 254\n\n"+
+			"You entered: "+prefix+"\n```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 		return
 	}
 
-	// Validate setiap oktet adalah nombor 0-255
+	// Validate each octet is 0-255
 	for _, octet := range octets {
 		if val, err := strconv.Atoi(octet); err != nil || val < 0 || val > 255 {
-			msg := tgbotapi.NewMessage(chatID, "❌ Invalid IP prefix!\n\nExample: `104.16.132. 1 254`")
+			msg := tgbotapi.NewMessage(chatID, "```\n"+
+				"❌ Invalid IP prefix!\n\n"+
+				"Each segment must be 0-255\n"+
+				"Example: 104.16.132. 1 254\n```")
 			msg.ParseMode = "Markdown"
 			msg.ReplyMarkup = getCancelKeyboard()
 			bot.Send(msg)
@@ -243,15 +261,15 @@ func handleSnifferInput(update tgbotapi.Update) {
 	}
 
 	startIP := 1
-	endIP := 254
+	endIP := 1022
 
 	if len(parts) >= 2 {
-		if s, err := strconv.Atoi(parts[1]); err == nil && s >= 0 && s <= 255 {
+		if s, err := strconv.Atoi(parts[1]); err == nil && s >= 0 && s <= 65535 {
 			startIP = s
 		}
 	}
 	if len(parts) >= 3 {
-		if e, err := strconv.Atoi(parts[2]); err == nil && e >= 0 && e <= 255 {
+		if e, err := strconv.Atoi(parts[2]); err == nil && e >= 0 && e <= 65535 {
 			endIP = e
 		}
 	}
