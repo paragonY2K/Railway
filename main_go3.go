@@ -3147,7 +3147,7 @@ func handleCIDRInput(update tgbotapi.Update) {
 		totalIPs -= 2
 	}
 
-	if totalIPs > 256 {
+	if totalIPs > 512 {
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Range too large: %d IPs. Maximum is 256 (CIDR /24).", totalIPs))
 		msg.ReplyMarkup = getMainMenuOnlyKeyboard()
 		bot.Send(msg)
@@ -3223,9 +3223,9 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 	totalIPs64 := int64(totalIPs)
 	totalJobs := totalIPs64 * int64(len(ports))
 
-	if totalIPs > 1024 {
+	if totalIPs > 512 {
 		updateStatus(chatID, statusMsgID, fmt.Sprintf(
-			"⚠️ *Range Too Large*\n\nYour range: `%s` (%d IPs)\nMaximum: 1024 IPs\n\nPlease use a smaller range like /24",
+			"⚠️ *Range Too Large*\n\nYour range: `%s` (%d IPs)\nMaximum: 512 IPs\n\nPlease use a smaller range like /24",
 			cidr, totalIPs))
 		return
 	}
@@ -3293,6 +3293,9 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 	}()
 
 	concurrency := 50
+	if totalIPs > 128 {
+		concurrency = 80
+	}
 	if totalIPs > 256 {
 		concurrency = 120
 	}
@@ -3747,7 +3750,7 @@ func getMainMenuKeyboard() *tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Reverse DNS", "menu_reverse"),
+			tgbotapi.NewInlineKeyboardButtonData("🛡 Domain Sniff", "menu_sniff"),
 			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
@@ -3882,106 +3885,6 @@ func handleStart(update tgbotapi.Update) {
 	msg.ReplyMarkup = getMainMenuKeyboard()
 
 	bot.Send(msg)
-}
-
-func handleUserListCommand(update tgbotapi.Update) {
-	chatID := update.Message.Chat.ID
-	if chatID != adminChatID {
-		return
-	}
-
-	umMutex.RLock()
-	defer umMutex.RUnlock()
-
-	type userEntry struct {
-		ID   int64
-		Info *UserInfo
-	}
-	var users []userEntry
-	for id, u := range userData.Users {
-		users = append(users, userEntry{ID: id, Info: u})
-	}
-
-	sort.Slice(users, func(i, j int) bool {
-		if users[i].Info.Banned != users[j].Info.Banned {
-			return !users[i].Info.Banned
-		}
-		return users[i].Info.Scans > users[j].Info.Scans
-	})
-
-	activeCount := 0
-	bannedCount := 0
-	for _, u := range users {
-		if u.Info.Banned {
-			bannedCount++
-		} else {
-			activeCount++
-		}
-	}
-
-	loadingMsg := tgbotapi.NewMessage(chatID, "⏳ Loading...")
-	sentMsg, _ := bot.Send(loadingMsg)
-
-	var sb strings.Builder
-	sb.WriteString("<b>P ᴀ ʀ ᴀ ɢ ᴏ ɴ  U S E R  L I S T</b>\n")
-	sb.WriteString("<code>──────────────────────────</code>\n")
-	sb.WriteString(fmt.Sprintf("<b>Total:</b> <code>%d</code> | <b>Active:</b> <code>%d</code> | <b>Banned:</b> <code>%d</code>\n", len(users), activeCount, bannedCount))
-	sb.WriteString("<code>──────────────────────────</code>\n\n")
-
-	if len(users) == 0 {
-		sb.WriteString("<i>No users found.</i>\n")
-	} else {
-		limit := 50
-		if len(users) < limit {
-			limit = len(users)
-		}
-
-		for i := 0; i < limit; i++ {
-			u := users[i]
-			statusEmoji := "✅"
-			if u.Info.Banned {
-				statusEmoji = "🚫"
-			}
-
-			username := u.Info.Username
-			if username == "" {
-				username = u.Info.FirstName
-			}
-			if username == "" {
-				username = "No_Name"
-			}
-			if !strings.HasPrefix(username, "@") {
-				username = "@" + username
-			}
-
-			safeUser := html.EscapeString(username)
-
-			sb.WriteString(fmt.Sprintf("<b>%d.</b> %s <code>%s</code>\n", i+1, statusEmoji, safeUser))
-			sb.WriteString(fmt.Sprintf("   <b>ID:</b> <code>%d</code> | <b>Scans:</b> <code>%d</code>\n", u.ID, u.Info.Scans))
-
-			if i < limit-1 {
-				sb.WriteString("   <code>────────────────────</code>\n")
-			}
-		}
-
-		if len(users) > 50 {
-			sb.WriteString(fmt.Sprintf("\n<i>...and %d more</i>\n", len(users)-50))
-		}
-	}
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh", "menu_userlist"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
-		),
-	)
-
-	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
-	edit.ParseMode = "HTML"
-	edit.ReplyMarkup = &keyboard
-	bot.Send(edit)
 }
 
 func handleHWID(update tgbotapi.Update) {
@@ -4394,85 +4297,137 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 }
 
 func executeSubdomainScan(chatID int64, domain string) {
-	domain = strings.ToLower(strings.TrimSpace(domain))
+	domains := strings.Split(domain, ",")
+	var cleanDomains []string
+	for _, d := range domains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d != "" {
+			cleanDomains = append(cleanDomains, d)
+		}
+	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔍 *Scanning Subdomains:* `%s`\n━━━━━━━━━━━━━━━━━━━━\n📡 Initializing...", domain))
+	if len(cleanDomains) == 0 {
+		bot.Send(tgbotapi.NewMessage(chatID, "❌ No valid domains."))
+		return
+	}
+
+	if len(cleanDomains) > 3 {
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("❌ Max 3 domains per batch (you sent %d). Processing first 3.", len(cleanDomains)))
+		bot.Send(msg)
+		cleanDomains = cleanDomains[:3]
+	}
+
+	if len(cleanDomains) == 1 {
+		domain = cleanDomains[0]
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔍 *Scanning Subdomains:* `%s`\n━━━━━━━━━━━━━━━━━━━━\n📡 Initializing...", domain))
+		msg.ParseMode = "Markdown"
+		sentMsg, _ := bot.Send(msg)
+
+		progressChan := make(chan string, 20)
+		var finalSubs []string
+		done := make(chan bool)
+
+		go func() {
+			finalSubs, _ = subdomainEnum(domain, progressChan)
+			done <- true
+		}()
+
+		func() {
+			for {
+				select {
+				case status, ok := <-progressChan:
+					if ok {
+						text := fmt.Sprintf("🔎 *Subdomain Enumeration*\n━━━━━━━━━━━━━━━━━━━━\n\nTarget: `%s`\n\n%s", domain, status)
+						edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, text)
+						edit.ParseMode = "Markdown"
+						bot.Send(edit)
+						time.Sleep(350 * time.Millisecond)
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
+
+		resultText := formatSubdomainResultMarkdown(domain, finalSubs)
+		editFinal := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, resultText)
+		editFinal.ParseMode = "Markdown"
+		editFinal.ReplyMarkup = getMainMenuOnlyKeyboard()
+		bot.Send(editFinal)
+
+		if len(finalSubs) > 0 {
+			fileName := fmt.Sprintf("subdomains_%s.txt", strings.ReplaceAll(domain, ".", "_"))
+			content := strings.Join(finalSubs, "\n")
+			err := os.WriteFile(fileName, []byte(content), 0644)
+			if err == nil {
+				doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(fileName))
+				doc.Caption = fmt.Sprintf("📄 Full Result for: `%s`", domain)
+				bot.Send(doc)
+				os.Remove(fileName)
+			}
+		}
+		return
+	}
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔎 *Multi-Domain Enumeration*\n━━━━━━━━━━━━━━━━━━━━\n%d domains queued\n⏳ Starting...", len(cleanDomains)))
 	msg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(msg)
 
-	progressChan := make(chan string, 20)
-	var finalSubs []string
-	done := make(chan bool)
+	var allResults strings.Builder
+	allResults.WriteString("```\n")
+	allResults.WriteString("╭─────────────────────────╮\n")
+	allResults.WriteString("│  🔎 MULTI-DOMAIN RESULTS │\n")
+	allResults.WriteString("╰─────────────────────────╯\n\n")
 
-	go func() {
-		finalSubs, _ = subdomainEnum(domain, progressChan)
-		done <- true
-	}()
+	allSubs := make(map[string][]string)
 
-	func() {
-		for {
-			select {
-			case status, ok := <-progressChan:
-				if ok {
-					text := fmt.Sprintf("🔎 *Subdomain Enumeration*\n━━━━━━━━━━━━━━━━━━━━\n\nTarget: `%s`\n\n%s", domain, status)
-					edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, text)
-					edit.ParseMode = "Markdown"
-					bot.Send(edit)
-					time.Sleep(350 * time.Millisecond)
-				}
-			case <-done:
-				return
-			}
+	for i, d := range cleanDomains {
+		updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf("🔎 *Processing %d/%d:* `%s`\n⏳ Please wait...", i+1, len(cleanDomains), d))
+
+		subs, _ := subdomainEnum(d, nil)
+		allSubs[d] = subs
+
+		allResults.WriteString(fmt.Sprintf("📋 %s: %d subdomains\n", d, len(subs)))
+
+		limit := 5
+		if len(subs) < limit {
+			limit = len(subs)
 		}
-	}()
+		for j := 0; j < limit; j++ {
+			allResults.WriteString(fmt.Sprintf("   %d. %s\n", j+1, subs[j]))
+		}
+		if len(subs) > 5 {
+			allResults.WriteString(fmt.Sprintf("   ... +%d more\n", len(subs)-5))
+		}
+		allResults.WriteString("   ────────────────────────\n")
 
-	resultText := formatSubdomainResultMarkdown(domain, finalSubs)
-
-	editFinal := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, resultText)
-	editFinal.ParseMode = "Markdown"
-	bot.Send(editFinal)
-
-	if len(finalSubs) > 0 {
-		fileName := fmt.Sprintf("subdomains_%s.txt", strings.ReplaceAll(domain, ".", "_"))
-		content := strings.Join(finalSubs, "\n")
-
-		err := os.WriteFile(fileName, []byte(content), 0644)
-		if err == nil {
-			doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(fileName))
-			doc.Caption = fmt.Sprintf("📄 Full Result for: `%s`", domain)
-			bot.Send(doc)
-			os.Remove(fileName)
+		if i < len(cleanDomains)-1 {
+			time.Sleep(2 * time.Second)
 		}
 	}
-}
 
-func executeReverseLookup(chatID int64, ip string) {
-	defer recoverPanic(chatID)
-	defer clearSessionState(chatID)
+	allResults.WriteString("```")
 
-	sendTyping(chatID)
+	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, allResults.String())
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = getMainMenuOnlyKeyboard()
+	bot.Send(edit)
 
-	hosts, err := doReverseIPLookup(ip)
-
-	var resultText strings.Builder
-	resultText.WriteString("*🔄 Reverse DNS Lookup*\n")
-	resultText.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
-	resultText.WriteString(fmt.Sprintf("*IP:* `%s`\n\n", escapeMarkdownV2(ip)))
-
-	if err != nil || len(hosts) == 0 {
-		resultText.WriteString("❌ No PTR records found\n")
-	} else {
-		resultText.WriteString(fmt.Sprintf("*Found %d hostname(s):*\n", len(hosts)))
-		for _, h := range hosts {
-			resultText.WriteString(fmt.Sprintf("  • `%s`\n", escapeMarkdownV2(h)))
+	var exportContent strings.Builder
+	for d, subs := range allSubs {
+		exportContent.WriteString(fmt.Sprintf("# %s (%d subdomains)\n", d, len(subs)))
+		for _, s := range subs {
+			exportContent.WriteString(s + "\n")
 		}
+		exportContent.WriteString("\n")
 	}
-	resultText.WriteString("\n━━━━━━━━━━━━━━━━━━━━")
 
-	msg := tgbotapi.NewMessage(chatID, resultText.String())
-	msg.ParseMode = "MarkdownV2"
-	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
-	bot.Send(msg)
+	fileName := fmt.Sprintf("multisub_%d.txt", time.Now().Unix())
+	os.WriteFile(fileName, []byte(exportContent.String()), 0644)
+	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(fileName))
+	doc.Caption = fmt.Sprintf("📄 %d domains combined result", len(cleanDomains))
+	bot.Send(doc)
+	os.Remove(fileName)
 }
 
 func handleCallbackQuery(update tgbotapi.Update) {
@@ -4486,7 +4441,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 	}
 
-	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cfgval" && !strings.HasPrefix(data, "cfg_") && data != "menu_help" && data != "menu_feedback" {
+	if !isSubscribed(chatID) && data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cfgval" && !strings.HasPrefix(data, "cfg_") && data != "menu_help" && data != "menu_feedback" && data != "menu_sniff" {
 		bot.Send(tgbotapi.NewCallback(callback.ID, "⚠️ Subscription Required!"))
 
 		msg := tgbotapi.NewMessage(chatID, "🚫 *ACCESS RESTRICTED*\n━━━━━━━━━━━━━━━━━━━━\n\nYou must join our official channel to use this bot.\n\nTarget: @supremebughost\n━━━━━━━━━━━━━━━━━━━━")
@@ -4545,12 +4500,21 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 
-	case "menu_reverse":
-		setSessionState(chatID, "awaiting_reverse_target")
-		msg := tgbotapi.NewMessage(chatID, "*🔄 Reverse DNS Lookup*\n━━━━━━━━━━━━━━━━━━━━\n\nSend IP: `8.8.8.8`")
-		msg.ParseMode = "MarkdownV2"
+	case "menu_sniff":
+		setSessionState(chatID, "awaiting_sniff_input")
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭─────────────────────────╮\n"+
+			"│   🔎 DOMAIN SNIFF       │\n"+
+			"╰─────────────────────────╯\n\n"+
+			"Send IP range:\n"+
+			"prefix start end\n\n"+
+			"Example:\n"+
+			"104.16.132. 1 254\n\n"+
+			"Or just prefix for 1-254\n```")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
+		return
 
 	case "menu_mass":
 		clearSessionState(chatID)
@@ -4726,6 +4690,14 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		bot.Send(msg)
 		return
 
+	case "menu_stats":
+		handleUsersCommand(update)
+		return
+
+	case "menu_userlist":
+		handleUserListCommand(update)
+		return
+
 	case "menu_cancel":
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "❌ Cancelled. Returning to menu.")
@@ -4867,9 +4839,8 @@ func handleMessage(update tgbotapi.Update) {
 		handleExtractDomains(update)
 		return
 
-	case "awaiting_reverse_target":
-		clearSessionState(chatID)
-		go executeReverseLookup(chatID, text)
+	case "awaiting_sniff_input":
+		handleSnifferInput(update)
 		return
 
 	case "awaiting_feedback":
@@ -5046,7 +5017,7 @@ func handleUnbanCommand(update tgbotapi.Update) {
 }
 
 func handleUsersCommand(update tgbotapi.Update) {
-	chatID := update.Message.Chat.ID
+	chatID := getUserID(update)
 	if chatID != adminChatID {
 		return
 	}
@@ -5089,6 +5060,101 @@ func handleUsersCommand(update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(chatID, sb.String())
 	msg.ParseMode = "MarkdownV2"
 	msg.ReplyMarkup = &keyboard
+	bot.Send(msg)
+}
+
+func handleUserListCommand(update tgbotapi.Update) {
+	chatID := getUserID(update)
+	if chatID != adminChatID {
+		return
+	}
+
+	umMutex.RLock()
+	defer umMutex.RUnlock()
+
+	type userEntry struct {
+		ID   int64
+		Info *UserInfo
+	}
+	var users []userEntry
+	for id, u := range userData.Users {
+		users = append(users, userEntry{ID: id, Info: u})
+	}
+
+	sort.Slice(users, func(i, j int) bool {
+		if users[i].Info.Banned != users[j].Info.Banned {
+			return !users[i].Info.Banned
+		}
+		return users[i].Info.Scans > users[j].Info.Scans
+	})
+
+	activeCount := 0
+	bannedCount := 0
+	for _, u := range users {
+		if u.Info.Banned {
+			bannedCount++
+		} else {
+			activeCount++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<b>👥 USER LIST</b>\n")
+	sb.WriteString(fmt.Sprintf("<code>Total:%d | Active:%d | Banned:%d</code>\n", len(users), activeCount, bannedCount))
+	sb.WriteString("<code>━━━━━━━━━━━━━━━━━━━━</code>\n\n")
+
+	if len(users) == 0 {
+		sb.WriteString("<i>No users found.</i>\n")
+	} else {
+		limit := 50
+		if len(users) < limit {
+			limit = len(users)
+		}
+
+		for i := 0; i < limit; i++ {
+			u := users[i]
+			icon := "🟢"
+			if u.Info.Banned {
+				icon = "🔴"
+			}
+
+			// Guna display name — priority: FirstName, Username, ID
+			displayName := u.Info.FirstName
+			if displayName == "" {
+				displayName = u.Info.Username
+			}
+			if displayName == "" {
+				displayName = fmt.Sprintf("User%d", u.ID)
+			}
+			// Clean HTML
+			displayName = html.EscapeString(displayName)
+
+			scans := u.Info.Scans
+
+			sb.WriteString(fmt.Sprintf(
+				"%s <a href=\"tg://user?id=%d\">%s</a> — <code>%d scans</code>\n",
+				icon, u.ID, displayName, scans,
+			))
+		}
+
+		if len(users) > 50 {
+			sb.WriteString(fmt.Sprintf("\n<i>...and %d more</i>\n", len(users)-50))
+		}
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Refresh", "menu_userlist"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, sb.String())
+	msg.ParseMode = "HTML"
+	msg.ReplyMarkup = &keyboard
+	msg.DisableWebPagePreview = true
 	bot.Send(msg)
 }
 
