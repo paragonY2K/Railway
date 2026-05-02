@@ -221,16 +221,37 @@ func handleSnifferInput(update tgbotapi.Update) {
 		prefix += "."
 	}
 
+	// Validate prefix ada 3 oktet (x.x.x.)
+	octets := strings.Split(strings.TrimSuffix(prefix, "."), ".")
+	if len(octets) != 3 {
+		msg := tgbotapi.NewMessage(chatID, "❌ Prefix must be in 3 segments!\n\nExample:\n`104.16.132. 1 254`\n\nYour input: `"+prefix+"`")
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = getCancelKeyboard()
+		bot.Send(msg)
+		return
+	}
+
+	// Validate setiap oktet adalah nombor 0-255
+	for _, octet := range octets {
+		if val, err := strconv.Atoi(octet); err != nil || val < 0 || val > 255 {
+			msg := tgbotapi.NewMessage(chatID, "❌ Invalid IP prefix!\n\nExample: `104.16.132. 1 254`")
+			msg.ParseMode = "Markdown"
+			msg.ReplyMarkup = getCancelKeyboard()
+			bot.Send(msg)
+			return
+		}
+	}
+
 	startIP := 1
 	endIP := 254
 
 	if len(parts) >= 2 {
-		if s, err := strconv.Atoi(parts[1]); err == nil {
+		if s, err := strconv.Atoi(parts[1]); err == nil && s >= 0 && s <= 255 {
 			startIP = s
 		}
 	}
 	if len(parts) >= 3 {
-		if e, err := strconv.Atoi(parts[2]); err == nil {
+		if e, err := strconv.Atoi(parts[2]); err == nil && e >= 0 && e <= 255 {
 			endIP = e
 		}
 	}

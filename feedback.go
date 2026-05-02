@@ -61,9 +61,10 @@ func handleFeedbackInput(update tgbotapi.Update) {
 			"Thank you for helping improve the bot!\n"
 	}
 
+	reply += "\n_Send /start to return to menu_"
+
 	msg := tgbotapi.NewMessage(chatID, reply)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = getMainMenuKeyboard()
 	bot.Send(msg)
 
 	// Notify admin
