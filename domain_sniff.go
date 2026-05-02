@@ -15,7 +15,7 @@ import (
 )
 
 // =============================================
-// TLS CERTIFICATE SNIFFER
+// DOMAIN SNIFFER - SSL CERTIFICATE EXTRACTOR
 // =============================================
 
 func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
@@ -37,11 +37,9 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 
 	certs := conn.ConnectionState().PeerCertificates
 	for _, cert := range certs {
-		// Common Name — filter wildcard + domain only
 		if cert.Subject.CommonName != "" && isValidDomain(cert.Subject.CommonName) {
 			results <- cleanWildcard(cert.Subject.CommonName)
 		}
-		// SAN — filter semua
 		for _, domain := range cert.DNSNames {
 			if isValidDomain(domain) {
 				results <- cleanWildcard(domain)
@@ -50,7 +48,6 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 	}
 }
 
-// Buang *. prefix
 func cleanWildcard(domain string) string {
 	if strings.HasPrefix(domain, "*.") {
 		return domain[2:]
@@ -58,17 +55,13 @@ func cleanWildcard(domain string) string {
 	return domain
 }
 
-// Check domain format valid
 func isValidDomain(s string) bool {
-	// Mesti ada dot
 	if !strings.Contains(s, ".") {
 		return false
 	}
-	// Bukan CA/Cert issuer name ( detect by spaces / panjang / caps pattern )
 	if strings.Contains(s, " ") || len(s) > 100 {
 		return false
 	}
-	// Bukan pattern CA name (mostly ada "CA", "Root", "Authority", "Validation")
 	lower := strings.ToLower(s)
 	caPatterns := []string{
 		" ca ", " root ", " authority ", " validation ",
@@ -86,7 +79,7 @@ func isValidDomain(s string) bool {
 	return true
 }
 
-func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
+func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, isMultiSubnet bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Error*\n```\n"+fmt.Sprintf("%v", r)+"\n```"))
@@ -94,34 +87,44 @@ func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
 		}
 	}()
 
-	if startIP < 1 || endIP > 65535 || startIP > endIP {
-		msg := tgbotapi.NewMessage(chatID, "❌ Invalid IP range. Use: 1-65535")
-		bot.Send(msg)
-		return
-	}
+	var totalIPs int
+	var targetLabel string
+	var wg sync.WaitGroup
+	results := make(chan string, 10000)
+	uniqueDomains := make(map[string]bool)
+	startTime := time.Now()
 
-	totalIPs := endIP - startIP + 1
+	if isMultiSubnet {
+		totalSubnets := endRange - startRange + 1
+		totalIPs = totalSubnets * 254
+		targetLabel = fmt.Sprintf("%s%d.* - %d.*", prefix, startRange, endRange)
+
+		for octet := startRange; octet <= endRange; octet++ {
+			for i := 1; i <= 254; i++ {
+				ip := fmt.Sprintf("%s%d.%d", prefix, octet, i)
+				wg.Add(1)
+				go sniffDomains(ip, &wg, results)
+			}
+		}
+	} else {
+		totalIPs = endRange - startRange + 1
+		targetLabel = fmt.Sprintf("%s%d - %d", prefix, startRange, endRange)
+
+		for i := startRange; i <= endRange; i++ {
+			ip := fmt.Sprintf("%s%d", prefix, i)
+			wg.Add(1)
+			go sniffDomains(ip, &wg, results)
+		}
+	}
 
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
 		"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
-			"Target: `%s%d - %d`\n"+
-			"Total IPs: %d\n\n"+
+			"Target: `%s`\n"+
+			"IPs: %d\n\n"+
 			"⏳ Scanning...",
-		prefix, startIP, endIP, totalIPs))
+		targetLabel, totalIPs))
 	statusMsg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(statusMsg)
-
-	startTime := time.Now()
-
-	var wg sync.WaitGroup
-	results := make(chan string, 1000)
-	uniqueDomains := make(map[string]bool)
-
-	for i := startIP; i <= endIP; i++ {
-		ip := fmt.Sprintf("%s%d", prefix, i)
-		wg.Add(1)
-		go sniffDomains(ip, &wg, results)
-	}
 
 	go func() {
 		wg.Wait()
@@ -147,7 +150,7 @@ func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
 	sb.WriteString("╭─────────────────────────╮\n")
 	sb.WriteString("│  🔎 DOMAIN SNIFF RESULT │\n")
 	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("Target : %s%d - %d\n", prefix, startIP, endIP))
+	sb.WriteString(fmt.Sprintf("Target : %s\n", targetLabel))
 	sb.WriteString(fmt.Sprintf("IPs    : %d\n", totalIPs))
 	sb.WriteString(fmt.Sprintf("Found  : %d domains\n", len(sortedDomains)))
 	sb.WriteString(fmt.Sprintf("Time   : %v\n", elapsed))
@@ -181,8 +184,8 @@ func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
 		err := os.WriteFile(fileName, []byte(content), 0644)
 		if err == nil {
 			doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(fileName))
-			doc.Caption = fmt.Sprintf("📄 *Domain Sniff Report*\nTarget: `%s%d-%d`\nFound: %d domains",
-				prefix, startIP, endIP, len(sortedDomains))
+			doc.Caption = fmt.Sprintf("📄 *Domain Sniff Report*\nTarget: `%s`\nFound: %d domains",
+				targetLabel, len(sortedDomains))
 			doc.ParseMode = "Markdown"
 			bot.Send(doc)
 			os.Remove(fileName)
@@ -191,10 +194,6 @@ func executeTLSSniffer(chatID int64, prefix string, startIP, endIP int) {
 
 	clearSessionState(chatID)
 }
-
-// =============================================
-// HANDLER UNTUK DOMAIN SNIFF INPUT
-// =============================================
 
 func handleSnifferInput(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
@@ -216,10 +215,10 @@ func handleSnifferInput(update tgbotapi.Update) {
 			"╰─────────────────────────╯\n\n"+
 			"🎯 Format: prefix start end\n\n"+
 			"📋 Examples:\n"+
-			"104.16.132. 1 254   → 254 IPs (fast)\n"+
-			"104.16.132. 1 1022  → 1022 IPs (medium)\n"+
-			"104.16.132. 1 4094  → 4094 IPs (big)\n\n"+
-			"💡 Just prefix only = auto 1-1022\n"+
+			"104.16.132. 1 254  → Single subnet\n"+
+			"104.16. 132 135    → /22 (4 subnets)\n"+
+			"104.16. 0 255      → /16 (65K IPs!)\n\n"+
+			"💡 Just prefix only = auto 0-255\n"+
 			"```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
@@ -232,48 +231,55 @@ func handleSnifferInput(update tgbotapi.Update) {
 		prefix += "."
 	}
 
-	// Validate prefix has 3 octets (x.x.x.)
 	octets := strings.Split(strings.TrimSuffix(prefix, "."), ".")
-	if len(octets) != 3 {
-		msg := tgbotapi.NewMessage(chatID, "```\n"+
-			"❌ Prefix must be 3 segments!\n\n"+
-			"✅ Correct: 104.16.132. 1 254\n"+
-			"❌ Wrong:   104.16. 1 254\n\n"+
-			"You entered: "+prefix+"\n```")
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = getCancelKeyboard()
-		bot.Send(msg)
+
+	if len(octets) == 2 {
+		// Multi subnet: 104.16. 0 255
+		startOctet := 0
+		endOctet := 255
+
+		if len(parts) >= 2 {
+			if s, err := strconv.Atoi(parts[1]); err == nil && s >= 0 && s <= 255 {
+				startOctet = s
+			}
+		}
+		if len(parts) >= 3 {
+			if e, err := strconv.Atoi(parts[2]); err == nil && e >= 0 && e <= 255 {
+				endOctet = e
+			}
+		}
+
+		clearSessionState(chatID)
+		go executeTLSSniffer(chatID, prefix, startOctet, endOctet, true)
 		return
 	}
 
-	// Validate each octet is 0-255
-	for _, octet := range octets {
-		if val, err := strconv.Atoi(octet); err != nil || val < 0 || val > 255 {
-			msg := tgbotapi.NewMessage(chatID, "```\n"+
-				"❌ Invalid IP prefix!\n\n"+
-				"Each segment must be 0-255\n"+
-				"Example: 104.16.132. 1 254\n```")
-			msg.ParseMode = "Markdown"
-			msg.ReplyMarkup = getCancelKeyboard()
-			bot.Send(msg)
-			return
+	if len(octets) == 3 {
+		// Single subnet: 104.16.132. 1 254
+		startIP := 1
+		endIP := 254
+
+		if len(parts) >= 2 {
+			if s, err := strconv.Atoi(parts[1]); err == nil && s >= 1 && s <= 254 {
+				startIP = s
+			}
 		}
+		if len(parts) >= 3 {
+			if e, err := strconv.Atoi(parts[2]); err == nil && e >= 1 && e <= 254 {
+				endIP = e
+			}
+		}
+
+		clearSessionState(chatID)
+		go executeTLSSniffer(chatID, prefix, startIP, endIP, false)
+		return
 	}
 
-	startIP := 1
-	endIP := 1022
-
-	if len(parts) >= 2 {
-		if s, err := strconv.Atoi(parts[1]); err == nil && s >= 0 && s <= 65535 {
-			startIP = s
-		}
-	}
-	if len(parts) >= 3 {
-		if e, err := strconv.Atoi(parts[2]); err == nil && e >= 0 && e <= 65535 {
-			endIP = e
-		}
-	}
-
-	clearSessionState(chatID)
-	go executeTLSSniffer(chatID, prefix, startIP, endIP)
+	msg := tgbotapi.NewMessage(chatID, "```\n"+
+		"❌ Invalid prefix!\n\n"+
+		"Use 2 segments: 104.16. 0 255\n"+
+		"Or 3 segments: 104.16.132. 1 254\n```")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = getCancelKeyboard()
+	bot.Send(msg)
 }
