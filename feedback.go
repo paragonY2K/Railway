@@ -41,7 +41,6 @@ func handleFeedbackInput(update tgbotapi.Update) {
 	if text == "" || strings.ToLower(text) == "cancel" {
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "👋 No worries! Back to main menu.")
-		msg.ReplyMarkup = getMainMenuKeyboard()
 		bot.Send(msg)
 		return
 	}
