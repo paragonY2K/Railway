@@ -3276,12 +3276,14 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 				speedLive := float64(completed) / elapsedLive.Seconds()
 
 				text := fmt.Sprintf(
-					"🔄 *Scanning Network...*\n\n"+
-						"🎯 Target: `%s`\n"+
-						"📊 Progress: `%s` %.0f%%\n\n"+
-						"⚡ Speed: %.1f/s\n"+
-						"💎 Found: %d potential targets",
-					cidr, bar, percent, speedLive, found,
+					"🔄 *CIDR Scan In Progress*\n"+
+						"━━━━━━━━━━━━━━━━━━━━\n\n"+
+						"🎯 `%s`\n"+
+						"📊 `%s` %.0f%%\n"+
+						"🧪 %d/%d jobs done\n\n"+
+						"⚡ %.1f jobs/sec\n"+
+						"💎 %d targets found",
+					cidr, bar, percent, completed, totalJobs, speedLive, found,
 				)
 				updateStatus(chatID, statusMsgID, text)
 			case <-done:
@@ -4255,7 +4257,7 @@ func executeSingleScan(chatID int64, target string) {
 			sess.TempData["payload_target"] = target
 			sess.TempData["last_scan_target"] = target
 		} else {
-			replyMarkup = getMainMenuKeyboard()
+			replyMarkup = nil
 		}
 
 		edit := tgbotapi.NewEditMessageText(chatID, msgID, resultText)
