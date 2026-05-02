@@ -4506,11 +4506,13 @@ func handleCallbackQuery(update tgbotapi.Update) {
 			"╭─────────────────────────╮\n"+
 			"│   🔎 DOMAIN SNIFF       │\n"+
 			"╰─────────────────────────╯\n\n"+
-			"Send IP range:\n"+
-			"prefix start end\n\n"+
-			"Example:\n"+
-			"104.16.132. 1 254\n\n"+
-			"Or just prefix for 1-254\n```")
+			"🎯 Format: prefix start end\n\n"+
+			"📋 Examples:\n"+
+			"104.16.132. 1 254  → Single subnet\n"+
+			"104.16. 132 135    → /22 (4 subnets)\n"+
+			"104.16. 0 255      → /16 (65K IPs!)\n\n"+
+			"💡 Just prefix only = auto 0-255\n"+
+			"```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
