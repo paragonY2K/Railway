@@ -104,7 +104,7 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 
 	// 2. WORKER POOL SETUP
 	jobs := make(chan string, 1000)
-	numWorkers := 300
+	numWorkers := 1000
 
 	for w := 1; w <= numWorkers; w++ {
 		go func() {
@@ -142,10 +142,10 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	statusMsg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(statusMsg)
 
-	// 5. Progress tracker (update setiap 5 saat)
+	// 5. Progress tracker (update setiap 8 saat)
 	done := make(chan bool)
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(8 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
