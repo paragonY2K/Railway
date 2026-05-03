@@ -4369,6 +4369,7 @@ func executeSubdomainScan(chatID int64, domain string) {
 		return
 	}
 
+	// Multi-domain scan
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔎 *Multi-Domain Enumeration*\n━━━━━━━━━━━━━━━━━━━━\n%d domains queued\n⏳ Starting...", len(cleanDomains)))
 	msg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(msg)
@@ -4382,9 +4383,35 @@ func executeSubdomainScan(chatID int64, domain string) {
 	allSubs := make(map[string][]string)
 
 	for i, d := range cleanDomains {
-		updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf("🔎 *Processing %d/%d:* `%s`\n⏳ Please wait...", i+1, len(cleanDomains), d))
+		updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+			"🔎 *Processing %d/%d:* `%s`\n📡 Initializing...",
+			i+1, len(cleanDomains), d))
 
-		subs, _ := subdomainEnum(d, nil)
+		progressChan := make(chan string, 20)
+		var subs []string
+		done := make(chan bool)
+
+		go func(domain string) {
+			subs, _ = subdomainEnum(domain, progressChan)
+			done <- true
+		}(d)
+
+		go func(domain string) {
+			for {
+				select {
+				case status, ok := <-progressChan:
+					if ok {
+						updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+							"🔎 *Processing %d/%d:* `%s`\n%s",
+							i+1, len(cleanDomains), domain, status))
+					}
+				case <-done:
+					return
+				}
+			}
+		}(d)
+
+		<-done
 		allSubs[d] = subs
 
 		allResults.WriteString(fmt.Sprintf("📋 %s: %d subdomains\n", d, len(subs)))
@@ -4400,10 +4427,6 @@ func executeSubdomainScan(chatID int64, domain string) {
 			allResults.WriteString(fmt.Sprintf("   ... +%d more\n", len(subs)-5))
 		}
 		allResults.WriteString("   ────────────────────────\n")
-
-		if i < len(cleanDomains)-1 {
-			time.Sleep(2 * time.Second)
-		}
 	}
 
 	allResults.WriteString("```")
@@ -4495,10 +4518,21 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	case "menu_sub":
 		setSessionState(chatID, "awaiting_subdomain_target")
-		msg := tgbotapi.NewMessage(chatID, "*🔎 Subdomain Enumeration*\n━━━━━━━━━━━━━━━━━━━━\n\nSend domain: `example.com`")
-		msg.ParseMode = "MarkdownV2"
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭─────────────────────────╮\n"+
+			"│  🔎 SUBDOMAIN FINDER    │\n"+
+			"╰─────────────────────────╯\n\n"+
+			"🎯 Send domain(s):\n\n"+
+			"📋 Single:\n"+
+			"google.com\n\n"+
+			"📋 Multiple (max 3):\n"+
+			"orange.com, google.com, facebook.com\n\n"+
+			"💡 Use comma (,) to separate\n"+
+			"```")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
+		return
 
 	case "menu_sniff":
 		setSessionState(chatID, "awaiting_sniff_input")
@@ -5120,7 +5154,7 @@ func handleUserListCommand(update tgbotapi.Update) {
 				icon = "🔴"
 			}
 
-			// Guna display name — priority: FirstName, Username, ID
+			// Display name — guna FirstName
 			displayName := u.Info.FirstName
 			if displayName == "" {
 				displayName = u.Info.Username
@@ -5128,14 +5162,19 @@ func handleUserListCommand(update tgbotapi.Update) {
 			if displayName == "" {
 				displayName = fmt.Sprintf("User%d", u.ID)
 			}
-			// Clean HTML
 			displayName = html.EscapeString(displayName)
+
+			// Username (kalau ada)
+			usernameStr := ""
+			if u.Info.Username != "" {
+				usernameStr = fmt.Sprintf(" @%s", u.Info.Username)
+			}
 
 			scans := u.Info.Scans
 
 			sb.WriteString(fmt.Sprintf(
-				"%s <a href=\"tg://user?id=%d\">%s</a> — <code>%d scans</code>\n",
-				icon, u.ID, displayName, scans,
+				"%s <a href=\"tg://user?id=%d\">%s</a>%s — <code>%d scans</code>\n",
+				icon, u.ID, displayName, usernameStr, scans,
 			))
 		}
 
