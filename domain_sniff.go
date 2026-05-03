@@ -22,7 +22,7 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 	defer wg.Done()
 
 	dialer := &net.Dialer{
-		Timeout: 2 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 
 	conf := &tls.Config{
@@ -64,12 +64,8 @@ func isValidDomain(s string) bool {
 	}
 	lower := strings.ToLower(s)
 	caPatterns := []string{
-		" ca ", " root ", " authority ", " validation ",
-		" ssl ", " tls ", " rsa ", " ecc ", " ev ",
-		"digicert", "sectigo", "comodo", "thawte",
-		"geotrust", "globalsign", "godaddy", "gandicert",
-		"cloudflare tls", "encryption everywhere", "actalis",
-		"usertrust", "gts root",
+		"root ca", "issuing ca", "validation", "authority",
+		"digicert", "sectigo", "globalsign", "gts root",
 	}
 	for _, pattern := range caPatterns {
 		if strings.Contains(lower, pattern) {
@@ -90,52 +86,105 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	var totalIPs int
 	var targetLabel string
 	var wg sync.WaitGroup
-	results := make(chan string, 10000)
+
+	results := make(chan string, 50000)
 	uniqueDomains := make(map[string]bool)
+	var mu sync.Mutex
 	startTime := time.Now()
 
+	// 1. Tentukan Total IPs & Label
 	if isMultiSubnet {
 		totalSubnets := endRange - startRange + 1
 		totalIPs = totalSubnets * 254
 		targetLabel = fmt.Sprintf("%s%d.* - %d.*", prefix, startRange, endRange)
-
-		for octet := startRange; octet <= endRange; octet++ {
-			for i := 1; i <= 254; i++ {
-				ip := fmt.Sprintf("%s%d.%d", prefix, octet, i)
-				wg.Add(1)
-				go sniffDomains(ip, &wg, results)
-			}
-		}
 	} else {
 		totalIPs = endRange - startRange + 1
 		targetLabel = fmt.Sprintf("%s%d - %d", prefix, startRange, endRange)
-
-		for i := startRange; i <= endRange; i++ {
-			ip := fmt.Sprintf("%s%d", prefix, i)
-			wg.Add(1)
-			go sniffDomains(ip, &wg, results)
-		}
 	}
 
+	// 2. WORKER POOL SETUP
+	jobs := make(chan string, 1000)
+	numWorkers := 300
+
+	for w := 1; w <= numWorkers; w++ {
+		go func() {
+			for ip := range jobs {
+				sniffDomains(ip, &wg, results)
+			}
+		}()
+	}
+
+	// 3. Queue jobs
+	go func() {
+		if isMultiSubnet {
+			for octet := startRange; octet <= endRange; octet++ {
+				for i := 1; i <= 254; i++ {
+					wg.Add(1)
+					jobs <- fmt.Sprintf("%s%d.%d", prefix, octet, i)
+				}
+			}
+		} else {
+			for i := startRange; i <= endRange; i++ {
+				wg.Add(1)
+				jobs <- fmt.Sprintf("%s%d", prefix, i)
+			}
+		}
+		close(jobs)
+	}()
+
+	// 4. Status message
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
 		"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
 			"Target: `%s`\n"+
-			"IPs: %d\n\n"+
+			"Workers: %d | IPs: %d\n\n"+
 			"⏳ Scanning...",
-		targetLabel, totalIPs))
+		targetLabel, numWorkers, totalIPs))
 	statusMsg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(statusMsg)
 
+	// 5. Progress tracker (update setiap 5 saat)
+	done := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				count := len(uniqueDomains)
+				mu.Unlock()
+				elapsed := time.Since(startTime).Round(time.Second)
+				updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+					"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
+						"Target: `%s`\n"+
+						"Workers: %d | IPs: %d\n"+
+						"Found: %d domains\n"+
+						"Time: %v\n\n"+
+						"⏳ Still scanning...",
+					targetLabel, numWorkers, totalIPs, count, elapsed))
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// 6. Close results bila semua siap
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
+	// 7. Collect unique domains
 	for domain := range results {
+		mu.Lock()
 		if !uniqueDomains[domain] {
 			uniqueDomains[domain] = true
 		}
+		mu.Unlock()
 	}
+
+	// Stop progress tracker
+	close(done)
 
 	elapsed := time.Since(startTime).Round(time.Second)
 
