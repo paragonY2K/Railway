@@ -940,7 +940,7 @@ func executeConfigValidation(chatID int64, input string) {
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
 	editMsg.ParseMode = "Markdown"
-	editMsg.ReplyMarkup = getMainMenuKeyboard()
+	editMsg.ReplyMarkup = nil
 	bot.Send(editMsg)
 
 	clearSessionState(chatID)

@@ -3941,7 +3941,6 @@ func executeSingleScan(chatID int64, target string) {
 		}
 	}()
 
-	// Rate limiter
 	select {
 	case scanSemaphore <- struct{}{}:
 		defer func() { <-scanSemaphore }()
@@ -3970,7 +3969,6 @@ func executeSingleScan(chatID int64, target string) {
 		host = target
 	}
 
-	// Cache check
 	cacheKey := fmt.Sprintf("single:%s:%d", host, specifiedPort)
 	if cached, found := resultCache.Get(cacheKey); found {
 		statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⚡ *Cached Result:*", host)
@@ -4003,6 +4001,7 @@ func executeSingleScan(chatID int64, target string) {
 	resultChan := make(chan string, 1)
 	resultPriority := make(chan string, 1)
 	resultScore := make(chan int, 1)
+	resultUseCase := make(chan string, 1)
 
 	go func() {
 		select {
@@ -4010,6 +4009,7 @@ func executeSingleScan(chatID int64, target string) {
 			resultChan <- "❌ *Scan Timeout*"
 			resultPriority <- "WEAK"
 			resultScore <- 0
+			resultUseCase <- ""
 			return
 		default:
 		}
@@ -4020,6 +4020,7 @@ func executeSingleScan(chatID int64, target string) {
 			resultChan <- "❌ *Resolution Failed:* Host not found."
 			resultPriority <- "WEAK"
 			resultScore <- 0
+			resultUseCase <- ""
 			return
 		}
 
@@ -4028,25 +4029,72 @@ func executeSingleScan(chatID int64, target string) {
 			resultChan <- "❌ *Scan Timeout*"
 			resultPriority <- "WEAK"
 			resultScore <- 0
+			resultUseCase <- ""
 			return
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		updateStatus(chatID, msgID, "📡 *Step 2:* Probing ports...")
-		finalPort, udpQUICOpen := probePorts(ip, specifiedPort)
+		updateStatus(chatID, msgID, "📡 *Step 2:* Probing multiple ports...")
+
+		var portsToTest []int
+		if specifiedPort != 0 {
+			portsToTest = append(portsToTest, specifiedPort)
+		} else {
+			portsToTest = []int{443, 80, 8080, 8880}
+		}
+
+		var info tlsInfo
+		var detectLabel string
+		var bestPriority string
+		var bestScore int
+		finalPort := 0
+
+		for _, port := range portsToTest {
+			updateStatus(chatID, msgID, fmt.Sprintf("📡 *Step 2:* Testing port %d...", port))
+			_, portInfo, portLabel, _ := classifyWithProbes(host, ip, port)
+			portPriority, portScore := calculateScore(portLabel, portInfo)
+
+			if portPriority == "STRONG" && portScore > bestScore {
+				info = portInfo
+				detectLabel = portLabel
+				bestPriority = portPriority
+				bestScore = portScore
+				finalPort = port
+			} else if bestPriority == "" || portScore > bestScore {
+				info = portInfo
+				detectLabel = portLabel
+				bestPriority = portPriority
+				bestScore = portScore
+				finalPort = port
+			}
+		}
 
 		if finalPort == 0 {
-			resultChan <- "❌ *Unreachable:* Target ports are closed."
+			updateStatus(chatID, msgID, "🔍 *Step 2b:* Checking non-HTTP protocols...")
+			for _, port := range portsToTest {
+				protoResult := detectProtocol(ip, port)
+				if protoResult.Working {
+					info.HTTPStatus = protoResult.Type
+					info.Server = protoResult.Banner
+					detectLabel = protoResult.Type
+					bestPriority = "STRONG"
+					bestScore = 80
+					finalPort = protoResult.Port
+					break
+				}
+			}
+		}
+
+		if finalPort == 0 {
+			resultChan <- "❌ *Unreachable:* All ports closed."
 			resultPriority <- "WEAK"
 			resultScore <- 0
+			resultUseCase <- ""
 			return
 		}
 
-		updateStatus(chatID, msgID, "🚀 *Step 3:* Analyzing payload...")
+		updateStatus(chatID, msgID, fmt.Sprintf("🚀 *Step 3:* Analyzing best port %d...", finalPort))
 
-		_, info, detectLabel, _ := classifyWithProbes(host, ip, finalPort)
-
-		// Reclassify dari stage 1
 		labelUpper := strings.ToUpper(detectLabel)
 		isH3 := strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC") || strings.Contains(strings.ToUpper(info.ALPN), "H3")
 
@@ -4054,20 +4102,31 @@ func executeSingleScan(chatID int64, target string) {
 		hostClean := strings.ToLower(host)
 		isSpoof := info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) && info.HTTPStatus != "" && info.HTTPStatus != "000"
 
-		if isH3 && udpQUICOpen {
-			detectLabel = "H3_QUIC"
-		} else if isSpoof {
-			detectLabel = "SPOOF"
-		} else if strings.Contains(labelUpper, "WS") || strings.Contains(info.HTTPStatus, "101") {
-			detectLabel = "WS"
-		} else if strings.Contains(labelUpper, "REALITY") {
-			detectLabel = "REALITY"
+		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" {
+			if isH3 {
+				detectLabel = "H3_QUIC"
+			} else if isSpoof {
+				detectLabel = "SPOOF"
+			} else if strings.Contains(labelUpper, "WS") || strings.Contains(info.HTTPStatus, "101") {
+				detectLabel = "WS"
+			} else if strings.Contains(labelUpper, "REALITY") {
+				detectLabel = "REALITY"
+			}
 		}
 
 		priority, qualityScore := calculateScore(detectLabel, info)
 
-		// DEEP VERIFY
+		if detectLabel == "SSH_TUNNEL" {
+			qualityScore = 85
+			priority = "STRONG"
+		}
+		if detectLabel == "SLOWDNS" {
+			qualityScore = 75
+			priority = "STRONG"
+		}
+
 		deepVerifyResult := ""
+		useCase := ""
 
 		if priority == "STRONG" {
 			updateStatus(chatID, msgID, "🔬 *Step 4:* Deep verifying connection...")
@@ -4121,12 +4180,18 @@ func executeSingleScan(chatID int64, target string) {
 		}
 
 		isVulnerable := (priority == "STRONG")
-		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult)
+
+		// Generate recommendation using verified templates
+		rec := getRecommendation(host, ip, finalPort, info.Server, info.HTTPStatus, detectLabel, info)
+		useCase = formatRecommendation(host, rec)
+
+		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult, useCase)
 
 		resultCache.Set(cacheKey, res, 5*time.Minute)
 		resultChan <- res
 		resultPriority <- priority
 		resultScore <- qualityScore
+		resultUseCase <- useCase
 	}()
 
 	select {
@@ -4155,7 +4220,6 @@ func executeSingleScan(chatID int64, target string) {
 			)
 			replyMarkup = &keyboard
 
-			// Save target for payload test & config validator
 			sess := getSession(chatID)
 			sess.TempData["payload_target"] = target
 			sess.TempData["last_scan_target"] = target
@@ -4178,7 +4242,7 @@ func executeSingleScan(chatID int64, target string) {
 // =============================================
 // FORMAT FUNCTION WITH DEEP VERIFY SUPPORT
 // =============================================
-func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string) string {
+func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string, useCase string) string {
 	var sb strings.Builder
 
 	sb.WriteString("```\n")
@@ -4225,6 +4289,12 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 	case "CDN_FRONT":
 		statusIcon = "☁️"
 		statusLabel = "CDN FRONTING"
+	case "SSH_TUNNEL":
+		statusIcon = "🔐"
+		statusLabel = "SSH TUNNEL"
+	case "SLOWDNS":
+		statusIcon = "🐢"
+		statusLabel = "SLOWDNS TUNNEL"
 	case "BUGHOST CONFIRMED", "CDN_HOST":
 		statusIcon = "⚠️"
 		statusLabel = "CDN BUGHOST"
@@ -4286,6 +4356,11 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 	if deepVerifyResult != "" {
 		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(deepVerifyResult)
+	}
+
+	if useCase != "" {
+		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		sb.WriteString(useCase)
 	}
 
 	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
