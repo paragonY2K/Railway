@@ -274,10 +274,10 @@ Security: %s`, host, rec.Port, rec.Network, rec.Security)
 
 🔧 Backend (Your VPS):
 Server: [vps]
-Port: 443
+Port: (your backend port)
 UUID/Password: (your credentials)
 
-💉 Verified Payload:
+💉 Verified Payload (for port %d):
 %s
 
 📱 Apps: %s
@@ -285,7 +285,7 @@ UUID/Password: (your credentials)
 
 ⚠️ Replace [vps] with your VPS hostname
 Replace [host] with this bughost (%s)
-Replace [ua] with User-Agent`, rec.Payload, rec.AppList, rec.Source, host)
+Replace [ua] with User-Agent`, rec.Port, rec.Payload, rec.AppList, rec.Source, host)
 
 	if rec.Note != "" {
 		output += fmt.Sprintf("\n\n%s", rec.Note)

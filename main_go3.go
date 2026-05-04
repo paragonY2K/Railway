@@ -3932,317 +3932,7 @@ func handleAbout(update tgbotapi.Update) {
 	bot.Send(msg)
 }
 
-func executeSingleScan(chatID int64, target string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic: %v", r)
-			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Engine Error:* Please try again later."))
-			clearSessionState(chatID)
-		}
-	}()
-
-	select {
-	case scanSemaphore <- struct{}{}:
-		defer func() { <-scanSemaphore }()
-	case <-time.After(30 * time.Second):
-		msg := tgbotapi.NewMessage(chatID, "⚠️ *Server busy.* Please try again in a moment.")
-		msg.ParseMode = "Markdown"
-		bot.Send(msg)
-		return
-	}
-
-	sendTyping(chatID)
-	target = strings.TrimSpace(target)
-
-	if target == "" || !strings.Contains(target, ".") {
-		msg := tgbotapi.NewMessage(chatID, "❌ *Invalid Format*\nExample: `google.com`")
-		msg.ParseMode = "Markdown"
-		bot.Send(msg)
-		return
-	}
-
-	host, portStr, err := net.SplitHostPort(target)
-	specifiedPort := 0
-	if err == nil {
-		specifiedPort, _ = strconv.Atoi(portStr)
-	} else {
-		host = target
-	}
-
-	cacheKey := fmt.Sprintf("single:%s:%d", host, specifiedPort)
-	if cached, found := resultCache.Get(cacheKey); found {
-		statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⚡ *Cached Result:*", host)
-		statusMsg := tgbotapi.NewMessage(chatID, statusText)
-		statusMsg.ParseMode = "Markdown"
-		sentMsg, _ := bot.Send(statusMsg)
-
-		edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, cached)
-		edit.ParseMode = "Markdown"
-		edit.ReplyMarkup = getMainMenuKeyboard()
-		bot.Send(edit)
-		clearSessionState(chatID)
-		return
-	}
-
-	statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⌛ Status: _Initializing..._", host)
-	statusMsg := tgbotapi.NewMessage(chatID, statusText)
-	statusMsg.ParseMode = "Markdown"
-
-	sentMsg, err := bot.Send(statusMsg)
-	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "Processing scan... please wait.")
-		sentMsg, _ = bot.Send(msg)
-	}
-
-	msgID := sentMsg.MessageID
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	resultChan := make(chan string, 1)
-	resultPriority := make(chan string, 1)
-	resultScore := make(chan int, 1)
-	resultUseCase := make(chan string, 1)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			resultChan <- "❌ *Scan Timeout*"
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
-			return
-		default:
-		}
-
-		updateStatus(chatID, msgID, "🔍 *Step 1:* Resolving host...")
-		ip, err := resolveIPv4(host)
-		if err != nil {
-			resultChan <- "❌ *Resolution Failed:* Host not found."
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
-			return
-		}
-
-		select {
-		case <-ctx.Done():
-			resultChan <- "❌ *Scan Timeout*"
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
-			return
-		case <-time.After(300 * time.Millisecond):
-		}
-
-		updateStatus(chatID, msgID, "📡 *Step 2:* Probing multiple ports...")
-
-		var portsToTest []int
-		if specifiedPort != 0 {
-			portsToTest = append(portsToTest, specifiedPort)
-		} else {
-			portsToTest = []int{443, 80, 8080, 8880}
-		}
-
-		var info tlsInfo
-		var detectLabel string
-		var bestPriority string
-		var bestScore int
-		finalPort := 0
-
-		for _, port := range portsToTest {
-			updateStatus(chatID, msgID, fmt.Sprintf("📡 *Step 2:* Testing port %d...", port))
-			_, portInfo, portLabel, _ := classifyWithProbes(host, ip, port)
-			portPriority, portScore := calculateScore(portLabel, portInfo)
-
-			if portPriority == "STRONG" && portScore > bestScore {
-				info = portInfo
-				detectLabel = portLabel
-				bestPriority = portPriority
-				bestScore = portScore
-				finalPort = port
-			} else if bestPriority == "" || portScore > bestScore {
-				info = portInfo
-				detectLabel = portLabel
-				bestPriority = portPriority
-				bestScore = portScore
-				finalPort = port
-			}
-		}
-
-		if finalPort == 0 {
-			updateStatus(chatID, msgID, "🔍 *Step 2b:* Checking non-HTTP protocols...")
-			for _, port := range portsToTest {
-				protoResult := detectProtocol(ip, port)
-				if protoResult.Working {
-					info.HTTPStatus = protoResult.Type
-					info.Server = protoResult.Banner
-					detectLabel = protoResult.Type
-					bestPriority = "STRONG"
-					bestScore = 80
-					finalPort = protoResult.Port
-					break
-				}
-			}
-		}
-
-		if finalPort == 0 {
-			resultChan <- "❌ *Unreachable:* All ports closed."
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
-			return
-		}
-
-		updateStatus(chatID, msgID, fmt.Sprintf("🚀 *Step 3:* Analyzing best port %d...", finalPort))
-
-		labelUpper := strings.ToUpper(detectLabel)
-		isH3 := strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC") || strings.Contains(strings.ToUpper(info.ALPN), "H3")
-
-		cnClean := strings.ToLower(strings.ReplaceAll(info.CommonName, "*.", ""))
-		hostClean := strings.ToLower(host)
-		isSpoof := info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) && info.HTTPStatus != "" && info.HTTPStatus != "000"
-
-		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" {
-			if isH3 {
-				detectLabel = "H3_QUIC"
-			} else if isSpoof {
-				detectLabel = "SPOOF"
-			} else if strings.Contains(labelUpper, "WS") || strings.Contains(info.HTTPStatus, "101") {
-				detectLabel = "WS"
-			} else if strings.Contains(labelUpper, "REALITY") {
-				detectLabel = "REALITY"
-			}
-		}
-
-		priority, qualityScore := calculateScore(detectLabel, info)
-
-		if detectLabel == "SSH_TUNNEL" {
-			qualityScore = 85
-			priority = "STRONG"
-		}
-		if detectLabel == "SLOWDNS" {
-			qualityScore = 75
-			priority = "STRONG"
-		}
-
-		deepVerifyResult := ""
-		useCase := ""
-
-		if priority == "STRONG" {
-			updateStatus(chatID, msgID, "🔬 *Step 4:* Deep verifying connection...")
-			verified := deepVerify(host, ip, finalPort, detectLabel, info)
-
-			if verified.IsWorking && verified.QualityScore >= 50 {
-				vu := strings.ToUpper(verified.VerifiedBug)
-				switch {
-				case strings.Contains(vu, "WEBSOCKET"):
-					detectLabel = "WS"
-				case strings.Contains(vu, "HTTP/3") || strings.Contains(vu, "QUIC"):
-					detectLabel = "H3_QUIC"
-				case strings.Contains(vu, "SNI SPOOF"):
-					detectLabel = "SPOOF"
-				case strings.Contains(vu, "AZURE"):
-					detectLabel = "AZURE_BNI"
-				case strings.Contains(vu, "CDN FRONTING"):
-					detectLabel = "CDN_FRONT"
-				case strings.Contains(vu, "REALITY"):
-					detectLabel = "REALITY"
-				}
-
-				if verified.WorkingHeader != nil {
-					if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
-						info.CommonName = sni
-					}
-					if hostHeader, ok := verified.WorkingHeader["Host"]; ok && hostHeader != "" {
-						info.Server = "VERIFIED-" + info.Server
-					}
-				}
-
-				qualityScore = (qualityScore + verified.QualityScore) / 2
-				if qualityScore > 100 {
-					qualityScore = 100
-				}
-
-				deepVerifyResult = fmt.Sprintf("✅ Deep Verify : %s (%d/100)", verified.VerifiedBug, verified.QualityScore)
-				priority = "STRONG"
-			} else {
-				errorMsg := verified.ErrorMessage
-				if errorMsg == "" {
-					errorMsg = "No valid response"
-				}
-				deepVerifyResult = fmt.Sprintf("❌ Deep Verify : FAILED (%s)", errorMsg)
-				priority = "WEAK"
-				qualityScore = qualityScore / 4
-				if qualityScore < 10 {
-					qualityScore = 10
-				}
-			}
-		}
-
-		isVulnerable := (priority == "STRONG")
-
-		// Generate recommendation using verified templates
-		rec := getRecommendation(host, ip, finalPort, info.Server, info.HTTPStatus, detectLabel, info)
-		useCase = formatRecommendation(host, rec)
-
-		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult, useCase)
-
-		resultCache.Set(cacheKey, res, 5*time.Minute)
-		resultChan <- res
-		resultPriority <- priority
-		resultScore <- qualityScore
-		resultUseCase <- useCase
-	}()
-
-	select {
-	case resultText := <-resultChan:
-		finalPriority := <-resultPriority
-		finalScore := <-resultScore
-
-		var replyMarkup *tgbotapi.InlineKeyboardMarkup
-
-		if finalPriority == "STRONG" && finalScore >= 80 {
-			payloadTarget := host
-			if specifiedPort != 0 {
-				payloadTarget = fmt.Sprintf("%s:%d", host, specifiedPort)
-			}
-
-			keyboard := tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(
-						"💉 Test Payloads Here",
-						fmt.Sprintf("payload_scan:%s", payloadTarget),
-					),
-				),
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
-				),
-			)
-			replyMarkup = &keyboard
-
-			sess := getSession(chatID)
-			sess.TempData["payload_target"] = target
-			sess.TempData["last_scan_target"] = target
-		} else {
-			replyMarkup = nil
-		}
-
-		edit := tgbotapi.NewEditMessageText(chatID, msgID, resultText)
-		edit.ParseMode = "Markdown"
-		edit.ReplyMarkup = replyMarkup
-		bot.Send(edit)
-
-	case <-ctx.Done():
-		updateStatus(chatID, msgID, "❌ *Scan Timeout*")
-	}
-
-	clearSessionState(chatID)
-}
-
-// =============================================
-// FORMAT FUNCTION WITH DEEP VERIFY SUPPORT
-// =============================================
-func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string, useCase string) string {
+func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string, useCase string, allPorts map[int]string) string {
 	var sb strings.Builder
 
 	sb.WriteString("```\n")
@@ -4252,7 +3942,23 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 
 	sb.WriteString(fmt.Sprintf("Target   : %s\n", host))
 	sb.WriteString(fmt.Sprintf("IP       : %s\n", ip))
-	sb.WriteString(fmt.Sprintf("Port     : %d\n", port))
+
+	// Show port with all tested ports
+	if len(allPorts) > 0 {
+		var portParts []string
+		for p, status := range allPorts {
+			if p == port {
+				portParts = append(portParts, fmt.Sprintf("*%d ✓", p))
+			} else if strings.Contains(status, "STRONG") || strings.Contains(status, "MEDI") {
+				portParts = append(portParts, fmt.Sprintf("%d ✓", p))
+			} else {
+				portParts = append(portParts, fmt.Sprintf("%d ✗", p))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("Port     : %d (%s)\n", port, strings.Join(portParts, ", ")))
+	} else {
+		sb.WriteString(fmt.Sprintf("Port     : %d\n", port))
+	}
 
 	serverDisplay := info.Server
 	if serverDisplay == "" || serverDisplay == "Unknown" {
@@ -4369,6 +4075,322 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 	sb.WriteString("\n```")
 
 	return sb.String()
+}
+
+func executeSingleScan(chatID int64, target string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic: %v", r)
+			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Engine Error:* Please try again later."))
+			clearSessionState(chatID)
+		}
+	}()
+
+	select {
+	case scanSemaphore <- struct{}{}:
+		defer func() { <-scanSemaphore }()
+	case <-time.After(30 * time.Second):
+		msg := tgbotapi.NewMessage(chatID, "⚠️ *Server busy.* Please try again in a moment.")
+		msg.ParseMode = "Markdown"
+		bot.Send(msg)
+		return
+	}
+
+	sendTyping(chatID)
+	target = strings.TrimSpace(target)
+
+	if target == "" || !strings.Contains(target, ".") {
+		msg := tgbotapi.NewMessage(chatID, "❌ *Invalid Format*\nExample: `google.com`")
+		msg.ParseMode = "Markdown"
+		bot.Send(msg)
+		return
+	}
+
+	host, portStr, err := net.SplitHostPort(target)
+	specifiedPort := 0
+	if err == nil {
+		specifiedPort, _ = strconv.Atoi(portStr)
+	} else {
+		host = target
+	}
+
+	cacheKey := fmt.Sprintf("single:%s:%d", host, specifiedPort)
+	if cached, found := resultCache.Get(cacheKey); found {
+		statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⚡ *Cached Result:*", host)
+		statusMsg := tgbotapi.NewMessage(chatID, statusText)
+		statusMsg.ParseMode = "Markdown"
+		sentMsg, _ := bot.Send(statusMsg)
+
+		edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, cached)
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = getMainMenuKeyboard()
+		bot.Send(edit)
+		clearSessionState(chatID)
+		return
+	}
+
+	statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⌛ Status: _Initializing..._", host)
+	statusMsg := tgbotapi.NewMessage(chatID, statusText)
+	statusMsg.ParseMode = "Markdown"
+
+	sentMsg, err := bot.Send(statusMsg)
+	if err != nil {
+		msg := tgbotapi.NewMessage(chatID, "Processing scan... please wait.")
+		sentMsg, _ = bot.Send(msg)
+	}
+
+	msgID := sentMsg.MessageID
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resultChan := make(chan string, 1)
+	resultPriority := make(chan string, 1)
+	resultScore := make(chan int, 1)
+	resultUseCase := make(chan string, 1)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			resultChan <- "❌ *Scan Timeout*"
+			resultPriority <- "WEAK"
+			resultScore <- 0
+			resultUseCase <- ""
+			return
+		default:
+		}
+
+		updateStatus(chatID, msgID, "🔍 *Step 1:* Resolving host...")
+		ip, err := resolveIPv4(host)
+		if err != nil {
+			resultChan <- "❌ *Resolution Failed:* Host not found."
+			resultPriority <- "WEAK"
+			resultScore <- 0
+			resultUseCase <- ""
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			resultChan <- "❌ *Scan Timeout*"
+			resultPriority <- "WEAK"
+			resultScore <- 0
+			resultUseCase <- ""
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+
+		updateStatus(chatID, msgID, "📡 *Step 2:* Probing multiple ports...")
+
+		var portsToTest []int
+		if specifiedPort != 0 {
+			portsToTest = append(portsToTest, specifiedPort)
+		} else {
+			portsToTest = []int{443, 80, 8080, 8880}
+		}
+
+		var info tlsInfo
+		var detectLabel string
+		var bestPriority string
+		var bestScore int
+		finalPort := 0
+		allResults := make(map[int]string)
+
+		for _, port := range portsToTest {
+			updateStatus(chatID, msgID, fmt.Sprintf("📡 *Step 2:* Testing port %d...", port))
+			_, portInfo, portLabel, _ := classifyWithProbes(host, ip, port)
+			portPriority, portScore := calculateScore(portLabel, portInfo)
+
+			if portPriority == "STRONG" || portPriority == "MEDI" {
+				allResults[port] = "✓"
+			} else {
+				allResults[port] = "✗"
+			}
+
+			if portPriority == "STRONG" && portScore > bestScore {
+				info = portInfo
+				detectLabel = portLabel
+				bestPriority = portPriority
+				bestScore = portScore
+				finalPort = port
+			} else if bestPriority == "" || portScore > bestScore {
+				info = portInfo
+				detectLabel = portLabel
+				bestPriority = portPriority
+				bestScore = portScore
+				finalPort = port
+			}
+		}
+
+		if finalPort == 0 {
+			updateStatus(chatID, msgID, "🔍 *Step 2b:* Checking non-HTTP protocols...")
+			for _, port := range portsToTest {
+				protoResult := detectProtocol(ip, port)
+				if protoResult.Working {
+					info.HTTPStatus = protoResult.Type
+					info.Server = protoResult.Banner
+					detectLabel = protoResult.Type
+					bestPriority = "STRONG"
+					bestScore = 80
+					finalPort = protoResult.Port
+					allResults[port] = "✓"
+					break
+				}
+			}
+		}
+
+		if finalPort == 0 {
+			resultChan <- "❌ *Unreachable:* All ports closed."
+			resultPriority <- "WEAK"
+			resultScore <- 0
+			resultUseCase <- ""
+			return
+		}
+
+		updateStatus(chatID, msgID, fmt.Sprintf("🚀 *Step 3:* Analyzing best port %d...", finalPort))
+
+		labelUpper := strings.ToUpper(detectLabel)
+		isH3 := strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC") || strings.Contains(strings.ToUpper(info.ALPN), "H3")
+
+		cnClean := strings.ToLower(strings.ReplaceAll(info.CommonName, "*.", ""))
+		hostClean := strings.ToLower(host)
+		isSpoof := info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) && info.HTTPStatus != "" && info.HTTPStatus != "000"
+
+		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" {
+			if isH3 {
+				detectLabel = "H3_QUIC"
+			} else if isSpoof {
+				detectLabel = "SPOOF"
+			} else if strings.Contains(labelUpper, "WS") || strings.Contains(info.HTTPStatus, "101") {
+				detectLabel = "WS"
+			} else if strings.Contains(labelUpper, "REALITY") {
+				detectLabel = "REALITY"
+			}
+		}
+
+		priority, qualityScore := calculateScore(detectLabel, info)
+
+		if detectLabel == "SSH_TUNNEL" {
+			qualityScore = 85
+			priority = "STRONG"
+		}
+		if detectLabel == "SLOWDNS" {
+			qualityScore = 75
+			priority = "STRONG"
+		}
+
+		deepVerifyResult := ""
+		useCase := ""
+
+		if priority == "STRONG" {
+			updateStatus(chatID, msgID, "🔬 *Step 4:* Deep verifying connection...")
+			verified := deepVerify(host, ip, finalPort, detectLabel, info)
+
+			if verified.IsWorking && verified.QualityScore >= 50 {
+				vu := strings.ToUpper(verified.VerifiedBug)
+				switch {
+				case strings.Contains(vu, "WEBSOCKET"):
+					detectLabel = "WS"
+				case strings.Contains(vu, "HTTP/3") || strings.Contains(vu, "QUIC"):
+					detectLabel = "H3_QUIC"
+				case strings.Contains(vu, "SNI SPOOF"):
+					detectLabel = "SPOOF"
+				case strings.Contains(vu, "AZURE"):
+					detectLabel = "AZURE_BNI"
+				case strings.Contains(vu, "CDN FRONTING"):
+					detectLabel = "CDN_FRONT"
+				case strings.Contains(vu, "REALITY"):
+					detectLabel = "REALITY"
+				}
+
+				if verified.WorkingHeader != nil {
+					if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
+						info.CommonName = sni
+					}
+					if hostHeader, ok := verified.WorkingHeader["Host"]; ok && hostHeader != "" {
+						info.Server = "VERIFIED-" + info.Server
+					}
+				}
+
+				qualityScore = (qualityScore + verified.QualityScore) / 2
+				if qualityScore > 100 {
+					qualityScore = 100
+				}
+
+				deepVerifyResult = fmt.Sprintf("✅ Deep Verify : %s (%d/100)", verified.VerifiedBug, verified.QualityScore)
+				priority = "STRONG"
+			} else {
+				errorMsg := verified.ErrorMessage
+				if errorMsg == "" {
+					errorMsg = "No valid response"
+				}
+				deepVerifyResult = fmt.Sprintf("❌ Deep Verify : FAILED (%s)", errorMsg)
+				priority = "WEAK"
+				qualityScore = qualityScore / 4
+				if qualityScore < 10 {
+					qualityScore = 10
+				}
+			}
+		}
+
+		isVulnerable := (priority == "STRONG")
+
+		if priority == "STRONG" && qualityScore >= 50 {
+			rec := getRecommendation(host, ip, finalPort, info.Server, info.HTTPStatus, detectLabel, info)
+			useCase = formatRecommendation(host, rec)
+		}
+
+		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult, useCase, allResults)
+
+		resultCache.Set(cacheKey, res, 5*time.Minute)
+		resultChan <- res
+		resultPriority <- priority
+		resultScore <- qualityScore
+		resultUseCase <- useCase
+	}()
+
+	select {
+	case resultText := <-resultChan:
+		finalPriority := <-resultPriority
+		finalScore := <-resultScore
+
+		var replyMarkup *tgbotapi.InlineKeyboardMarkup
+
+		if finalPriority == "STRONG" && finalScore >= 80 {
+			payloadTarget := host
+			if specifiedPort != 0 {
+				payloadTarget = fmt.Sprintf("%s:%d", host, specifiedPort)
+			}
+
+			keyboard := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(
+						"💉 Test Payloads Here",
+						fmt.Sprintf("payload_scan:%s", payloadTarget),
+					),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
+				),
+			)
+			replyMarkup = &keyboard
+
+			sess := getSession(chatID)
+			sess.TempData["payload_target"] = target
+			sess.TempData["last_scan_target"] = target
+		} else {
+			replyMarkup = nil
+		}
+
+		edit := tgbotapi.NewEditMessageText(chatID, msgID, resultText)
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = replyMarkup
+		bot.Send(edit)
+
+	case <-ctx.Done():
+		updateStatus(chatID, msgID, "❌ *Scan Timeout*")
+	}
+
+	clearSessionState(chatID)
 }
 
 func executeSubdomainScan(chatID int64, domain string) {
