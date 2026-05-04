@@ -4608,9 +4608,9 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	case "menu_single":
 		setSessionState(chatID, "awaiting_single_target")
-		msg := tgbotapi.NewMessage(chatID, "*🔍 Single Target Scan*\n━━━━━━━━━━━━━━━━━━━━\n\nSend target now:\n• `facebook.com`\n• `1.1.1.1:443`")
+		msg := tgbotapi.NewMessage(chatID, "*🔍 Single Target Scan*\n━━━━━━━━━━━━━━━━━━━━\n\nSend target now:\n• `www,speedtest.net`\n• `1.1.1.1:443`")
 		msg.ParseMode = "MarkdownV2"
-		msg.ReplyMarkup = getCancelKeyboard()
+		msg.ReplyMarkup = nil
 		bot.Send(msg)
 
 	case "menu_sub":
@@ -4832,6 +4832,10 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 
 	case "menu_cancel":
+		session := getSession(chatID)
+		if session.CancelFunc != nil {
+			session.CancelFunc() // ← STOP SCAN!
+		}
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "❌ Cancelled. Returning to menu.")
 		msg.ParseMode = "MarkdownV2"

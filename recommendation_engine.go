@@ -260,7 +260,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 func formatRecommendation(host string, rec RecommendConfig) string {
 	output := fmt.Sprintf(`💡 *Ready to Use (Verified Template):*
 
-📋 Frontend (Bughost):
+📋 Bughost:
 Address: %s
 Port: %d
 Network: %s
@@ -270,24 +270,45 @@ Security: %s`, host, rec.Port, rec.Network, rec.Security)
 		output += fmt.Sprintf("\nSNI: %s", rec.SNI)
 	}
 
-	output += fmt.Sprintf(`
+	if rec.Payload != "" {
+		output += fmt.Sprintf(`
 
-🔧 Backend (Your VPS):
-Server: [vps]
-Port: (your backend port)
-UUID/Password: (your credentials)
-
-💉 Verified Payload (for port %d):
+💉 Payload (for port %d):
 %s
 
+💡 Notes:
+• [host/vps] = This bughost OR your VPS`, rec.Port, rec.Payload)
+
+		if strings.Contains(rec.Payload, "CF-RAY") || strings.Contains(rec.Note, "Cloudflare") {
+			output += "\n• Cloudflare detected — CF-RAY header is critical!"
+		}
+		if strings.Contains(rec.Payload, "X-Online-Host") {
+			output += "\n• X-Online-Host header is critical!"
+		}
+		if strings.Contains(rec.Payload, "x-iorg-bsid") || strings.Contains(rec.Payload, "x-connected-to") {
+			output += "\n• Facebook impersonation — ALL 3 headers critical!"
+		}
+		if strings.Contains(rec.Payload, "X-Akamai-Request-ID") {
+			output += "\n• Akamai CDN — X-Akamai-Request-ID header is critical!"
+		}
+	} else {
+		output += `
+
+💡 Notes:
+🔐 Direct TLS — NO payload needed!
+• Just set Address + Port + SNI
+• Works with Trojan, VLESS TLS, Shadowsocks`
+	}
+
+	output += fmt.Sprintf(`
+
 📱 Apps: %s
-📋 Source: %s
+📋 Source: %s`, rec.AppList, rec.Source)
 
-⚠️ Replace [vps] with your VPS hostname
-Replace [host] with this bughost (%s)
-Replace [ua] with User-Agent`, rec.Port, rec.Payload, rec.AppList, rec.Source, host)
-
-	if rec.Note != "" {
+	if rec.Note != "" && rec.Payload != "" {
+		output += fmt.Sprintf("\n\n%s", rec.Note)
+	}
+	if rec.Note != "" && rec.Payload == "" {
 		output += fmt.Sprintf("\n\n%s", rec.Note)
 	}
 
