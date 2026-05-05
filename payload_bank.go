@@ -164,4 +164,8 @@ var payloadList = []struct {
 		Name:     "Dual CDN Trace Style",
 		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host]][crlf][crlf]RNG-RAY / HTTP/1.1[crlf]Host: [host/vps][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
 	},
+	{
+		Name:     "HDFC FLEX UAT Style",
+		Template: "GET / HTTP/1.1[crlf]Host:[host][crlf]X-Online-Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+	},
 }

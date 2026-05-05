@@ -1065,32 +1065,44 @@ func parseAdvancedConfig(input string) UserConfig {
 	config := UserConfig{}
 	parts := strings.Split(input, "|")
 
-	if len(parts) >= 1 && parts[0] != "" && parts[0] != "-" {
-		if h, p, err := net.SplitHostPort(parts[0]); err == nil {
-			config.ProxyHost = h
-			config.ProxyPort, _ = strconv.Atoi(p)
-		} else {
-			config.ProxyHost = parts[0]
-			config.ProxyPort = 443
+	if len(parts) >= 1 {
+		part := strings.TrimSpace(parts[0])
+		if part != "" && part != "-" {
+			if h, p, err := net.SplitHostPort(part); err == nil {
+				config.ProxyHost = h
+				config.ProxyPort, _ = strconv.Atoi(p)
+			} else {
+				config.ProxyHost = part
+				config.ProxyPort = 443
+			}
 		}
 	}
 
-	if len(parts) >= 2 && parts[1] != "" && parts[1] != "-" {
-		config.SNI = parts[1]
-	}
-
-	if len(parts) >= 3 && parts[2] != "" && parts[2] != "-" {
-		if h, p, err := net.SplitHostPort(parts[2]); err == nil {
-			config.TargetHost = h
-			config.TargetPort, _ = strconv.Atoi(p)
-		} else {
-			config.TargetHost = parts[2]
-			config.TargetPort = 443
+	if len(parts) >= 2 {
+		part := strings.TrimSpace(parts[1])
+		if part != "" && part != "-" {
+			config.SNI = part
 		}
 	}
 
-	if len(parts) >= 4 && parts[3] != "" && parts[3] != "-" {
-		config.Payload = parts[3]
+	if len(parts) >= 3 {
+		part := strings.TrimSpace(parts[2])
+		if part != "" && part != "-" {
+			if h, p, err := net.SplitHostPort(part); err == nil {
+				config.TargetHost = h
+				config.TargetPort, _ = strconv.Atoi(p)
+			} else {
+				config.TargetHost = part
+				config.TargetPort = 443
+			}
+		}
+	}
+
+	if len(parts) >= 4 {
+		part := strings.TrimSpace(parts[3])
+		if part != "" && part != "-" {
+			config.Payload = part
+		}
 	}
 
 	return config
@@ -1105,29 +1117,31 @@ func parseConfigInput(input string) UserConfig {
 	parts := strings.Split(input, "|")
 
 	if len(parts) >= 1 && parts[0] != "" && parts[0] != "-" {
-		if h, p, err := net.SplitHostPort(parts[0]); err == nil {
+		part := strings.TrimSpace(parts[0])
+		if h, p, err := net.SplitHostPort(part); err == nil {
 			config.ProxyHost = h
 			config.ProxyPort, _ = strconv.Atoi(p)
 		} else {
-			config.ProxyHost = parts[0]
+			config.ProxyHost = part
 			config.ProxyPort = 443
 		}
 	}
 
 	if len(parts) >= 2 && parts[1] != "" && parts[1] != "-" {
-		config.SNI = parts[1]
+		config.SNI = strings.TrimSpace(parts[1])
 	}
 
 	if len(parts) >= 3 && parts[2] != "" && parts[2] != "-" {
-		config.Payload = parts[2]
+		config.Payload = strings.TrimSpace(parts[2])
 	}
 
 	if len(parts) >= 4 && parts[3] != "" && parts[3] != "-" {
-		if h, p, err := net.SplitHostPort(parts[3]); err == nil {
+		part := strings.TrimSpace(parts[3])
+		if h, p, err := net.SplitHostPort(part); err == nil {
 			config.TargetHost = h
 			config.TargetPort, _ = strconv.Atoi(p)
 		} else {
-			config.TargetHost = parts[3]
+			config.TargetHost = part
 			config.TargetPort = 443
 		}
 	}

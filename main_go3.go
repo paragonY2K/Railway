@@ -3679,6 +3679,10 @@ func executeSingleScan(chatID int64, target string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Save cancel function
+	sess := getSession(chatID)
+	sess.CancelFunc = cancel
+
 	resultChan := make(chan string, 1)
 	resultPriority := make(chan string, 1)
 	resultScore := make(chan int, 1)
@@ -3715,7 +3719,7 @@ func executeSingleScan(chatID int64, target string) {
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		updateStatus(chatID, msgID, "📡 *Step 2:* Probing multiple ports...")
+		updateStatus(chatID, msgID, "📡 *Step 2:* Probing ports (parallel)...")
 
 		var portsToTest []int
 		if specifiedPort != 0 {
@@ -3724,6 +3728,40 @@ func executeSingleScan(chatID int64, target string) {
 			portsToTest = []int{443, 80, 8080, 8880}
 		}
 
+		type portResult struct {
+			port     int
+			info     tlsInfo
+			label    string
+			priority string
+			score    int
+		}
+
+		results := make(chan portResult, len(portsToTest))
+		var wg sync.WaitGroup
+
+		for _, port := range portsToTest {
+			wg.Add(1)
+			go func(p int) {
+				defer wg.Done()
+				_, pInfo, pLabel, _ := classifyWithProbes(host, ip, p)
+
+				// Also test plain HTTP for non-443 ports
+				if p != 443 && (pInfo.HTTPStatus == "" || pInfo.HTTPStatus == "000") {
+					httpStatus, httpInfo := doHTTP(host, ip, p)
+					if httpStatus == "OK" && httpInfo.ContentLength > 0 {
+						pInfo = httpInfo
+						pLabel = "HTTP_OK"
+					}
+				}
+
+				pPriority, pScore := calculateScore(pLabel, pInfo)
+				results <- portResult{p, pInfo, pLabel, pPriority, pScore}
+			}(port)
+		}
+
+		wg.Wait()
+		close(results)
+
 		var info tlsInfo
 		var detectLabel string
 		var bestPriority string
@@ -3731,29 +3769,25 @@ func executeSingleScan(chatID int64, target string) {
 		finalPort := 0
 		allResults := make(map[int]string)
 
-		for _, port := range portsToTest {
-			updateStatus(chatID, msgID, fmt.Sprintf("📡 *Step 2:* Testing port %d...", port))
-			_, portInfo, portLabel, _ := classifyWithProbes(host, ip, port)
-			portPriority, portScore := calculateScore(portLabel, portInfo)
-
-			if portPriority == "STRONG" || portPriority == "MEDI" {
-				allResults[port] = "✓"
+		for r := range results {
+			if r.priority == "STRONG" || r.priority == "MEDI" {
+				allResults[r.port] = "✓"
 			} else {
-				allResults[port] = "✗"
+				allResults[r.port] = "✗"
 			}
 
-			if portPriority == "STRONG" && portScore > bestScore {
-				info = portInfo
-				detectLabel = portLabel
-				bestPriority = portPriority
-				bestScore = portScore
-				finalPort = port
-			} else if bestPriority == "" || portScore > bestScore {
-				info = portInfo
-				detectLabel = portLabel
-				bestPriority = portPriority
-				bestScore = portScore
-				finalPort = port
+			if r.priority == "STRONG" && r.score > bestScore {
+				info = r.info
+				detectLabel = r.label
+				bestPriority = r.priority
+				bestScore = r.score
+				finalPort = r.port
+			} else if bestPriority == "" || r.score > bestScore {
+				info = r.info
+				detectLabel = r.label
+				bestPriority = r.priority
+				bestScore = r.score
+				finalPort = r.port
 			}
 		}
 
@@ -3791,7 +3825,7 @@ func executeSingleScan(chatID int64, target string) {
 		hostClean := strings.ToLower(host)
 		isSpoof := info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) && info.HTTPStatus != "" && info.HTTPStatus != "000"
 
-		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" {
+		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" && detectLabel != "HTTP_OK" {
 			if isH3 {
 				detectLabel = "H3_QUIC"
 			} else if isSpoof {
@@ -3803,6 +3837,10 @@ func executeSingleScan(chatID int64, target string) {
 			}
 		}
 
+		if detectLabel == "HTTP_OK" {
+			detectLabel = "HTTP_ONLY"
+		}
+
 		priority, qualityScore := calculateScore(detectLabel, info)
 
 		if detectLabel == "SSH_TUNNEL" {
@@ -3812,6 +3850,10 @@ func executeSingleScan(chatID int64, target string) {
 		if detectLabel == "SLOWDNS" {
 			qualityScore = 75
 			priority = "STRONG"
+		}
+		if detectLabel == "HTTP_ONLY" {
+			qualityScore = 35
+			priority = "WEAK"
 		}
 
 		deepVerifyResult := ""
@@ -5319,6 +5361,8 @@ func handleUserListCommand(update tgbotapi.Update) {
 			usernameStr := ""
 			if u.Info.Username != "" {
 				usernameStr = fmt.Sprintf(" @%s", html.EscapeString(u.Info.Username))
+			} else {
+				usernameStr = fmt.Sprintf(" · <code>ID:%d</code>", u.ID)
 			}
 
 			scans := u.Info.Scans

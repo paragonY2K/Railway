@@ -39,7 +39,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Type = "VLESS / VMess WebSocket"
 		rec.Network = "ws"
 		rec.Security = "none"
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf]Sec-WebSocket-Version: 13[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf]Sec-WebSocket-Version: 13[crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom, NapsternetV"
 		rec.Source = "CDN WebSocket Config"
 		rec.Note = "⚠️ Port 80 = No TLS. SNI not needed."
@@ -52,7 +52,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = info.CommonName
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf]Sec-WebSocket-Version: 13[crlf]User-Agent: [ua][crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf]Sec-WebSocket-Version: 13[crlf]User-Agent: [ua][crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom"
 		rec.Source = "WebSocket TLS Config"
 
@@ -64,7 +64,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Type = "SSH / VLESS (Banking Proxy)"
 		rec.Network = "ws"
 		rec.Security = "none"
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]X-Online-Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]X-Online-Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "Dark Tunnel, HTTP Custom, NapsternetV"
 		rec.Source = "HDFC Bank Config (verified working)"
 		rec.Note = "🏦 Banking domain. X-Online-Host header is CRITICAL!"
@@ -92,7 +92,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = host
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: Cloudflare Worker[crlf]CF-RAY: test123[crlf]Accept: */*[crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Cloudflare Worker[crlf]CF-RAY: test123[crlf]Accept: */*[crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom, NapsternetV"
 		rec.Source = "CDN Bughost Config (verified working)"
 		rec.Note = "☁️ Cloudflare detected. CF-RAY header is CRITICAL!"
@@ -106,7 +106,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = "googlevideo.com"
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: [ua][crlf]Accept: */*[crlf]Accept-Encoding: gzip, deflate[crlf]Accept-Language: en-US[crlf]Connection: keep-alive[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Accept: */*[crlf]Accept-Encoding: gzip, deflate[crlf]Accept-Language: en-US[crlf]Connection: keep-alive[crlf][crlf]"
 		rec.AppList = "V2RayNG, Sing-box"
 		rec.Source = "YouTube VLESS Config (verified working)"
 		rec.Note = "🌐 Google infra. Try SNI: googlevideo.com, youtube.com"
@@ -119,7 +119,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Type = "SSH (Dual Payload)"
 		rec.Network = "ws"
 		rec.Security = "none"
-		rec.Payload = "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: chann-sp.twitter.com[crlf][crlf]GET-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: chann-sp.twitter.com[crlf][crlf]GET-RAY / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "NPV Tunnel, HTTP Custom"
 		rec.Source = "NPV Tunnel Config (verified working)"
 		rec.Note = "🔥 DUAL payload! First mimics Cloudflare, second upgrades to WS."
@@ -133,7 +133,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = host
-		rec.Payload = "CONNECT [host]:443 HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom"
 		rec.Source = "VLESS Google Cloud Config (verified working)"
 		rec.Note = "☁️ Google Cloud Run backend. Blogspot domain = trusted."
@@ -171,7 +171,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 	case detectLabel == "SSH_TUNNEL":
 		rec.Type = "SSH Tunnel (Direct)"
 		rec.Security = "none"
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
 		rec.AppList = "Dark Tunnel, HTTP Custom, NapsternetV"
 		rec.Source = "Dark Tunnel SSH Config (verified working)"
 		rec.Note = "🔐 SSH protocol detected. Works with proxy payload."
@@ -196,7 +196,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = host
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: Akamai Edge[crlf]X-Akamai-Request-ID: test123[crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: Akamai Edge[crlf]X-Akamai-Request-ID: test123[crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom"
 		rec.Source = "Akamai CDN Config (verified working)"
 		rec.Note = "🛡️ Akamai detected. X-Akamai-Request-ID is CRITICAL!"
@@ -214,7 +214,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		} else {
 			rec.SNI = "facebook.com"
 		}
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: [ua][crlf]Accept: */*[crlf]Connection: keep-alive[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Accept: */*[crlf]Connection: keep-alive[crlf][crlf]"
 		rec.AppList = "V2RayNG, Sing-box"
 		rec.Source = "YouTube VLESS Config (verified working)"
 		rec.Note = "🎭 SNI Spoof works! Try: google.com, facebook.com, cloudflare.com"
@@ -260,7 +260,7 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Network = "ws"
 		rec.Security = "tls"
 		rec.SNI = host
-		rec.Payload = "GET / HTTP/1.1[crlf]Host: [vps][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
+		rec.Payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Connection: keep-alive[crlf]Upgrade: websocket[crlf][crlf]"
 		rec.AppList = "V2RayNG, HTTP Custom, NapsternetV"
 		rec.Source = "Generic Config"
 	}
