@@ -2420,8 +2420,31 @@ func doReverseIPLookup(ip string) ([]string, error) {
 }
 
 func extractDomains(text string) []string {
-	re := regexp.MustCompile(`(?i)\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|gov|edu|mil|biz|info|me|co|us|uk|ca|de|jp|fr|au|ru|ch|it|nl|se|no|es|online|tech|xyz|xyz|app|dev|shop|store)\b`)
-	return re.FindAllString(text, -1)
+	re := regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\.[a-z]{2})?\b`)
+	matches := re.FindAllString(text, -1)
+
+	// Filter false positives
+	var domains []string
+	for _, m := range matches {
+		m = strings.ToLower(m)
+		// Skip if looks like file extension
+		if bannedExt[m] {
+			continue
+		}
+		// Skip if too short
+		if len(m) < 5 {
+			continue
+		}
+		// Skip common false positives
+		if strings.HasPrefix(m, "http") || strings.HasPrefix(m, "www.") {
+			m = strings.TrimPrefix(m, "http://")
+			m = strings.TrimPrefix(m, "https://")
+			m = strings.TrimPrefix(m, "www.")
+		}
+		domains = append(domains, m)
+	}
+
+	return removeDuplicates(domains)
 }
 
 func removeDuplicates(domains []string) []string {
@@ -3112,7 +3135,7 @@ func handleExtractDomains(update tgbotapi.Update) {
 
 	msg := tgbotapi.NewMessage(chatID, result.String())
 	msg.ParseMode = "MarkdownV2"
-	msg.ReplyMarkup = getMainMenuOnlyKeyboard()
+	msg.ReplyMarkup = nil
 	bot.Send(msg)
 
 	clearSessionState(chatID)
@@ -3288,7 +3311,7 @@ func getMainMenuKeyboard() *tgbotapi.InlineKeyboardMarkup {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🛡 Domain Sniff", "menu_sniff"),
-			tgbotapi.NewInlineKeyboardButtonData("📝 Extract", "menu_extract"),
+			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domain", "menu_extract"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💬 Feedback", "menu_feedback"),
@@ -5362,7 +5385,7 @@ func handleUserListCommand(update tgbotapi.Update) {
 			if u.Info.Username != "" {
 				usernameStr = fmt.Sprintf(" @%s", html.EscapeString(u.Info.Username))
 			} else {
-				usernameStr = fmt.Sprintf(" · <code>ID:%d</code>", u.ID)
+				usernameStr = fmt.Sprintf(" · <a href=\"tg://user?id=%d\"><code>ID:%d</code></a>", u.ID, u.ID)
 			}
 
 			scans := u.Info.Scans
