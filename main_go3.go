@@ -4577,7 +4577,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 	}
 
 	fmt.Printf("🔥 Callback received: data=%s from chatID=%d\n", data, chatID)
-	if data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") {
+	if data != "check_subscription" && !strings.HasPrefix(data, "payload_scan:") && data != "menu_cancel" {
 		bot.Send(tgbotapi.NewCallback(callback.ID, ""))
 	}
 
