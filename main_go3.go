@@ -5224,16 +5224,16 @@ func handleUsersCommand(update tgbotapi.Update) {
 	uptimeStr := formatDuration(uptime)
 
 	var sb strings.Builder
-	sb.WriteString("*📊 PARAGON BOT STATS*\n")
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
-	sb.WriteString(fmt.Sprintf("👥 *Total Users:* `%d`\n", totalUsers))
-	sb.WriteString(fmt.Sprintf("   ✅ Active: `%d`\n", activeCount))
-	sb.WriteString(fmt.Sprintf("   🚫 Banned: `%d`\n", bannedCount))
-	sb.WriteString(fmt.Sprintf("🔍 *Total Scans:* `%d`\n", totalScans))
-	sb.WriteString(fmt.Sprintf("📊 *Active (24h):* `%d` users\n", active24h))
-	sb.WriteString(fmt.Sprintf("⏱️ *Uptime:* `%s`\n", uptimeStr))
-	sb.WriteString(fmt.Sprintf("📦 *Version:* `%s`\n", version))
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━")
+	sb.WriteString("<b>📊 PARAGON BOT STATS</b>\n")
+	sb.WriteString("<code>━━━━━━━━━━━━━━━━━━━━</code>\n\n")
+	sb.WriteString(fmt.Sprintf("<b>👥 Total Users:</b> <code>%d</code>\n", totalUsers))
+	sb.WriteString(fmt.Sprintf("   ✅ Active: <code>%d</code>\n", activeCount))
+	sb.WriteString(fmt.Sprintf("   🚫 Banned: <code>%d</code>\n", bannedCount))
+	sb.WriteString(fmt.Sprintf("<b>🔍 Total Scans:</b> <code>%d</code>\n", totalScans))
+	sb.WriteString(fmt.Sprintf("<b>📊 Active (24h):</b> <code>%d</code> users\n", active24h))
+	sb.WriteString(fmt.Sprintf("<b>⏱️ Uptime:</b> <code>%s</code>\n", uptimeStr))
+	sb.WriteString(fmt.Sprintf("<b>📦 Version:</b> <code>%s</code>\n", version))
+	sb.WriteString("\n<code>━━━━━━━━━━━━━━━━━━━━</code>")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -5242,7 +5242,7 @@ func handleUsersCommand(update tgbotapi.Update) {
 	)
 
 	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ParseMode = "MarkdownV2"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = &keyboard
 	bot.Send(msg)
 }
