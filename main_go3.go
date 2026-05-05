@@ -453,6 +453,9 @@ func loadUserData() {
 			userData = &ud
 		}
 	}
+	if userData.Users == nil {
+		userData.Users = make(map[int64]*UserInfo)
+	}
 }
 
 type LicenseData struct {
@@ -5211,7 +5214,7 @@ func handleUsersCommand(update tgbotapi.Update) {
 		} else {
 			activeCount++
 		}
-		if time.Since(u.LastScan) < 24*time.Hour {
+		if !u.LastScan.IsZero() && time.Since(u.LastScan) < 24*time.Hour {
 			active24h++
 		}
 	}
