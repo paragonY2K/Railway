@@ -219,7 +219,6 @@ func trackUserActivity(update tgbotapi.Update) {
 	u.Username = username
 	u.FirstName = firstName
 	u.LastName = lastName
-	u.Scans++
 	u.LastSeen = time.Now()
 
 	saveUserData()
@@ -429,6 +428,7 @@ type UserInfo struct {
 	LastName  string    `json:"last_name"`
 	Scans     int       `json:"scans"`
 	LastSeen  time.Time `json:"last_seen"`
+	LastScan  time.Time `json:"last_scan"`
 	Banned    bool      `json:"banned"`
 	Expiry    string    `json:"expiry"`
 }
@@ -2652,483 +2652,6 @@ func handleMassScanPorts(update tgbotapi.Update) {
 	go executeMassScan(chatID, sentMsg.MessageID, hosts, ports)
 }
 
-func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic in Mass scan: %v", r)
-			updateStatus(chatID, statusMsgID, "```\n❌ ENGINE CRASHED\n━━━━━━━━━━━━━━━━━━━━\nCritical failure in scanner logic.\n```")
-			clearSessionState(chatID)
-		}
-	}()
-
-	startTime := time.Now()
-
-	// 1. DEDUP & CLEANING
-	seenHosts := make(map[string]bool)
-	uniqueHosts := make([]string, 0)
-	for _, h := range hosts {
-		h = strings.ToLower(strings.TrimSpace(h))
-		if h != "" && !seenHosts[h] {
-			seenHosts[h] = true
-			uniqueHosts = append(uniqueHosts, h)
-		}
-	}
-	hosts = uniqueHosts
-	totalHosts := len(hosts)
-	totalJobs := int64(totalHosts) * int64(len(ports))
-
-	var mu sync.Mutex
-	hostPriority := make(map[string]string)
-	allResults := make(map[string]*scanRecord)
-	var strongCandidates []scanRecord
-	var completedJobs int64
-
-	// ==================== STAGE 1: RAW PROBING ====================
-	updateStatus(chatID, statusMsgID, "🔄 *Stage 1/2:* Scanning for live holes...")
-
-	ticker := time.NewTicker(2 * time.Second)
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				completed := atomic.LoadInt64(&completedJobs)
-				if completed >= totalJobs {
-					return
-				}
-				if completed == 0 {
-					continue
-				}
-				percent := float64(completed) / float64(totalJobs) * 100
-
-				mu.Lock()
-				found := len(strongCandidates)
-				mu.Unlock()
-
-				text := fmt.Sprintf(
-					"🔄 *Stage 1/2: Probing...*\n\n📊 Progress: `%.0f%%` (%d/%d)\n💎 Candidates: `%d`",
-					percent, completed, totalJobs, found,
-				)
-				updateStatus(chatID, statusMsgID, text)
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	concurrency := 150
-	semaphore := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-
-	for _, h := range hosts {
-		for _, port := range ports {
-			wg.Add(1)
-			semaphore <- struct{}{}
-
-			go func(targetHost string, targetPort int) {
-				defer wg.Done()
-				defer func() { <-semaphore }()
-				defer func() {
-					if r := recover(); r != nil {
-						atomic.AddInt64(&completedJobs, 1)
-					}
-				}()
-
-				// 1. Resolve IP
-				ip, err := resolveIPv4(targetHost)
-				if err != nil {
-					atomic.AddInt64(&completedJobs, 1)
-					return
-				}
-
-				// 2. Run Engine
-				_, info, label, tlsRaw := classifyWithProbes(targetHost, ip, targetPort)
-				info.IP = ip
-
-				if info.HTTPStatus == "" || info.HTTPStatus == "000" {
-					atomic.AddInt64(&completedJobs, 1)
-					return
-				}
-
-				// 3. Preliminary Scoring
-				finalPrio, qualityScore := calculateScore(label, info)
-
-				// Determine bugType
-				labelUpper := strings.ToUpper(label)
-				bugType := "CDN_HOST"
-				switch {
-				case strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC"):
-					bugType = "H3_QUIC"
-				case strings.Contains(info.HTTPStatus, "101") || strings.Contains(labelUpper, "WS"):
-					bugType = "WS"
-				case strings.Contains(labelUpper, "REALITY"):
-					bugType = "REALITY"
-				case strings.Contains(labelUpper, "SPOOF") || labelUpper == "BUGHOST CONFIRMED":
-					bugType = "SPOOF"
-				}
-
-				record := &scanRecord{
-					host:      targetHost,
-					port:      targetPort,
-					priority:  finalPrio,
-					status:    info.HTTPStatus,
-					server:    info.Server,
-					cn:        info.CommonName,
-					tlsRaw:    tlsRaw,
-					latencyMs: info.LatencyMs,
-					bugType:   bugType,
-					score:     qualityScore,
-					info:      info,
-					label:     label,
-				}
-
-				mu.Lock()
-				key := targetHost + ":" + strconv.Itoa(targetPort)
-				if existing, exists := allResults[key]; !exists || qualityScore > existing.score {
-					allResults[key] = record
-				}
-
-				if finalPrio == "STRONG" {
-					strongCandidates = append(strongCandidates, *record)
-				}
-
-				if priorityToRank(finalPrio) > priorityToRank(hostPriority[targetHost]) {
-					hostPriority[targetHost] = finalPrio
-				}
-				mu.Unlock()
-
-				atomic.AddInt64(&completedJobs, 1)
-			}(h, port)
-		}
-	}
-	wg.Wait()
-	ticker.Stop()
-	close(done)
-
-	stage1Elapsed := time.Since(startTime).Round(time.Second)
-
-	// ==================== STAGE 2: STRICT DEEP VERIFY ====================
-	var deepVerifiedCount, deepFailedCount int64
-	verifiedTargets := make([]map[string]string, 0)
-	failedTargets := make([]map[string]string, 0)
-
-	seen := make(map[string]bool)
-	uniqueCandidates := make([]scanRecord, 0)
-	for _, c := range strongCandidates {
-		key := c.host + ":" + strconv.Itoa(c.port)
-		if !seen[key] && c.info.IP != "" {
-			seen[key] = true
-			uniqueCandidates = append(uniqueCandidates, c)
-		}
-	}
-	strongCandidates = uniqueCandidates
-
-	if len(strongCandidates) > 0 {
-		updateStatus(chatID, statusMsgID, fmt.Sprintf(
-			"🔬 *Stage 2/2:* Deep Verifying %d candidates...\n\n⚡ Stage 1 done in %v",
-			len(strongCandidates), stage1Elapsed))
-
-		var dvWg sync.WaitGroup
-		dvSemaphore := make(chan struct{}, 30)
-		var dvCompleted int64
-
-		dvTicker := time.NewTicker(3 * time.Second)
-		dvDone := make(chan bool)
-		go func() {
-			for {
-				select {
-				case <-dvTicker.C:
-					done := atomic.LoadInt64(&dvCompleted)
-					total := int64(len(strongCandidates))
-					verified := atomic.LoadInt64(&deepVerifiedCount)
-					failed := atomic.LoadInt64(&deepFailedCount)
-
-					percent := 0.0
-					if total > 0 {
-						percent = float64(done) / float64(total) * 100
-					}
-
-					text := fmt.Sprintf(
-						"🔬 *Stage 2/2: Deep Verifying...*\n\n"+
-							"📊 Progress: %.0f%% (%d/%d)\n"+
-							"✅ Passed: %d | ❌ Failed: %d",
-						percent, done, total, verified, failed,
-					)
-					updateStatus(chatID, statusMsgID, text)
-				case <-dvDone:
-					return
-				}
-			}
-		}()
-
-		for _, c := range strongCandidates {
-			dvWg.Add(1)
-			dvSemaphore <- struct{}{}
-
-			go func(cand scanRecord) {
-				defer dvWg.Done()
-				defer func() { <-dvSemaphore }()
-				defer func() {
-					if r := recover(); r != nil {
-						atomic.AddInt64(&dvCompleted, 1)
-						atomic.AddInt64(&deepFailedCount, 1)
-					}
-				}()
-
-				ip := cand.info.IP
-				if ip == "" {
-					var err error
-					ip, err = resolveIPv4(cand.host)
-					if err != nil || ip == "" {
-						atomic.AddInt64(&dvCompleted, 1)
-						atomic.AddInt64(&deepFailedCount, 1)
-						return
-					}
-				}
-
-				verified := deepVerify(cand.host, ip, cand.port, cand.label, cand.info)
-
-				mu.Lock()
-				key := cand.host + ":" + strconv.Itoa(cand.port)
-
-				isBloated := cand.info.ContentLength > 25000
-				finalScore := verified.QualityScore
-				if isBloated && !strings.Contains(cand.info.HTTPStatus, "101") {
-					finalScore = finalScore / 3
-				}
-
-				vu := strings.ToUpper(verified.VerifiedBug)
-				isStandardCDN := strings.Contains(vu, "DIRECT TLS") && cand.port == 443
-				if isStandardCDN {
-					cnClean := strings.ToLower(strings.ReplaceAll(cand.info.CommonName, "*.", ""))
-					hostClean := strings.ToLower(cand.host)
-					cdnMismatch := cnClean != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean)
-
-					if !cdnMismatch {
-						finalScore = finalScore / 3
-					}
-				}
-
-				if verified.IsWorking && finalScore >= 65 {
-					newBugType := verified.VerifiedBug
-					newLabel := verified.VerifiedBug
-
-					switch {
-					case strings.Contains(vu, "WEBSOCKET"):
-						newBugType = "WS_PRO"
-						newLabel = "WS"
-					case strings.Contains(vu, "HTTP/3") || strings.Contains(vu, "QUIC"):
-						newBugType = "H3_QUIC"
-						newLabel = "H3_QUIC"
-					case strings.Contains(cand.label, "REALITY"):
-						newBugType = "REALITY_FIX"
-						newLabel = "REALITY"
-					case strings.Contains(vu, "SNI SPOOF"):
-						newBugType = "SPOOF"
-						newLabel = "SPOOF"
-					case strings.Contains(vu, "CDN"):
-						newBugType = "CDN_FRONT"
-						newLabel = "CDN_FRONT"
-					}
-
-					newStatus := "VERIFIED"
-					newServer := cand.info.Server
-					newCN := cand.info.CommonName
-					if verified.WorkingHeader != nil {
-						if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
-							newCN = sni
-						}
-					}
-
-					deepVerifiedStr := fmt.Sprintf("YES (%s|%d)", newBugType, finalScore)
-
-					if rec, exists := allResults[key]; exists {
-						rec.deepVerified = deepVerifiedStr
-						rec.score = finalScore
-						rec.priority = "STRONG"
-						rec.bugType = newBugType
-						rec.status = newStatus
-						rec.server = newServer
-						rec.cn = newCN
-						rec.label = newLabel
-					}
-
-					verifiedTargets = append(verifiedTargets, map[string]string{
-						"host":          cand.host,
-						"port":          strconv.Itoa(cand.port),
-						"sni":           newCN,
-						"tag":           newBugType,
-						"status":        newStatus,
-						"score":         strconv.Itoa(finalScore),
-						"server":        newServer,
-						"cn":            newCN,
-						"deep_verified": deepVerifiedStr,
-						"latency":       strconv.Itoa(cand.latencyMs),
-					})
-
-					hostPriority[cand.host] = "STRONG"
-					atomic.AddInt64(&deepVerifiedCount, 1)
-
-				} else {
-					errorMsg := verified.ErrorMessage
-					if errorMsg == "" {
-						errorMsg = "Low quality / Fake bughost"
-					}
-
-					deepVerifiedStr := fmt.Sprintf("FAILED (%s)", errorMsg)
-					newScore := cand.score / 3
-					if newScore < 5 {
-						newScore = 5
-					}
-
-					if rec, exists := allResults[key]; exists {
-						rec.deepVerified = deepVerifiedStr
-						rec.score = newScore
-						rec.priority = "WEAK"
-					}
-
-					failedTargets = append(failedTargets, map[string]string{
-						"host":          cand.host,
-						"port":          strconv.Itoa(cand.port),
-						"tag":           cand.bugType,
-						"status":        "FAILED",
-						"score":         strconv.Itoa(newScore),
-						"server":        cand.info.Server,
-						"cn":            cand.info.CommonName,
-						"deep_verified": deepVerifiedStr,
-						"latency":       strconv.Itoa(cand.latencyMs),
-					})
-
-					hostPriority[cand.host] = "WEAK"
-					atomic.AddInt64(&deepFailedCount, 1)
-				}
-				mu.Unlock()
-
-				atomic.AddInt64(&dvCompleted, 1)
-			}(c)
-		}
-
-		dvWg.Wait()
-		dvTicker.Stop()
-		close(dvDone)
-	}
-
-	csvFile := filepath.Join(os.TempDir(), fmt.Sprintf("Paragon_Mass_%d.csv", time.Now().Unix()))
-	out, err := os.Create(csvFile)
-	if err == nil {
-		writer := csv.NewWriter(out)
-		writer.Write([]string{"Host", "Port", "Priority", "Status", "Server", "CN", "TLS_Raw", "Latency(ms)", "BugType", "Score", "DeepVerified"})
-
-		mu.Lock()
-		for _, rec := range allResults {
-			writer.Write([]string{
-				rec.host, strconv.Itoa(rec.port), rec.priority, rec.status,
-				rec.server, rec.cn, rec.tlsRaw, strconv.Itoa(rec.latencyMs), rec.bugType, strconv.Itoa(rec.score), rec.deepVerified,
-			})
-		}
-		mu.Unlock()
-		writer.Flush()
-		out.Close()
-	}
-
-	elapsed := time.Since(startTime).Round(time.Second)
-	speed := 0.0
-	if elapsed.Seconds() > 0 {
-		speed = float64(totalJobs) / elapsed.Seconds()
-	}
-
-	sort.Slice(verifiedTargets, func(i, j int) bool {
-		scoreI, _ := strconv.Atoi(verifiedTargets[i]["score"])
-		scoreJ, _ := strconv.Atoi(verifiedTargets[j]["score"])
-		return scoreI > scoreJ
-	})
-
-	var sb strings.Builder
-	sb.WriteString("```\n")
-	sb.WriteString("╭──────────────────────────╮\n")
-	sb.WriteString("│  💎 PARAGON MASS RESULT  │\n")
-	sb.WriteString("╰──────────────────────────╯\n")
-	sb.WriteString(fmt.Sprintf("Hosts : %d | Jobs: %d\n", totalHosts, totalJobs))
-	sb.WriteString(fmt.Sprintf("Time  : %v | Speed: %.1f/s\n", elapsed, speed))
-	sb.WriteString(fmt.Sprintf("🔬 OK : %d | ❌ Fake: %d\n",
-		atomic.LoadInt64(&deepVerifiedCount),
-		atomic.LoadInt64(&deepFailedCount)))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-
-	if len(verifiedTargets) > 0 {
-		sb.WriteString("\n✅ VERIFIED TARGETS:\n\n")
-		limit := 10
-		for i, v := range verifiedTargets {
-			if i >= limit {
-				break
-			}
-			icon := "✅"
-			tag := v["tag"]
-			switch tag {
-			case "H3_QUIC":
-				icon = "⚡"
-				tag = "H3/QUIC"
-			case "WS_PRO", "WS":
-				icon = "🔌"
-				tag = "WS-PRO"
-			case "REALITY_FIX", "REALITY":
-				icon = "🔮"
-				tag = "REALITY"
-			case "SPOOF":
-				icon = "🎭"
-				tag = "SPOOF"
-			case "CDN_FRONT":
-				icon = "☁️"
-				tag = "CDN-FRONT"
-			}
-			sb.WriteString(fmt.Sprintf("%s %-18s [%s]\n", icon, v["host"], tag))
-			sb.WriteString(fmt.Sprintf("   PORT: %-5s | SC: %-3s | L: %-4sms\n", v["port"], v["score"], v["latency"]))
-			sb.WriteString(fmt.Sprintf("   CDN: %s\n", v["server"]))
-			sb.WriteString(fmt.Sprintf("   SNI: %s\n", v["cn"]))
-			sb.WriteString(fmt.Sprintf("   🔬: %s\n", v["deep_verified"]))
-			sb.WriteString("   ────────────────────────\n")
-		}
-	}
-
-	if len(failedTargets) > 0 {
-		sb.WriteString(fmt.Sprintf("\n❌ FAILED (%d):\n", len(failedTargets)))
-		limit := 3
-		for i, v := range failedTargets {
-			if i >= limit {
-				sb.WriteString(fmt.Sprintf("   ... and %d more\n", len(failedTargets)-limit))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("   • %-18s [%s] | %s\n",
-				v["host"], v["tag"], v["deep_verified"]))
-		}
-	}
-
-	if len(verifiedTargets) == 0 {
-		sb.WriteString("\n⚠️ No high-quality bug found.\n")
-	}
-	sb.WriteString("```")
-
-	updateStatus(chatID, statusMsgID, sb.String())
-
-	fileBytes, _ := os.ReadFile(csvFile)
-	if len(fileBytes) > 0 {
-		doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{
-			Name:  fmt.Sprintf("DeepVerify_%s.csv", time.Now().Format("150405")),
-			Bytes: fileBytes,
-		})
-		doc.Caption = fmt.Sprintf("📄 *Deep Verify Report*\n🔥 *Candidates:* %d\n✅ *Verified:* %d\n❌ *Failed:* %d\n⏱ *Time:* %v",
-			len(strongCandidates),
-			atomic.LoadInt64(&deepVerifiedCount),
-			atomic.LoadInt64(&deepFailedCount),
-			elapsed)
-		doc.ParseMode = "Markdown"
-		bot.Send(doc)
-	}
-
-	os.Remove(csvFile)
-	clearSessionState(chatID)
-}
-
 func handleCIDRInput(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 	cidr := strings.TrimSpace(update.Message.Text)
@@ -3212,6 +2735,13 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 			clearSessionState(chatID)
 		}
 	}()
+
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
 
 	startTime := time.Now()
 	ones, bits := ipnet.Mask.Size()
@@ -4082,6 +3612,13 @@ func executeSingleScan(chatID int64, target string) {
 		}
 	}()
 
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
+
 	select {
 	case scanSemaphore <- struct{}{}:
 		defer func() { <-scanSemaphore }()
@@ -4389,6 +3926,490 @@ func executeSingleScan(chatID int64, target string) {
 	clearSessionState(chatID)
 }
 
+func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic in Mass scan: %v", r)
+			updateStatus(chatID, statusMsgID, "```\n❌ ENGINE CRASHED\n━━━━━━━━━━━━━━━━━━━━\nCritical failure in scanner logic.\n```")
+			clearSessionState(chatID)
+		}
+	}()
+	// 2. SCAN COUNTER
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
+
+	startTime := time.Now()
+
+	// 1. DEDUP & CLEANING
+	seenHosts := make(map[string]bool)
+	uniqueHosts := make([]string, 0)
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h != "" && !seenHosts[h] {
+			seenHosts[h] = true
+			uniqueHosts = append(uniqueHosts, h)
+		}
+	}
+	hosts = uniqueHosts
+	totalHosts := len(hosts)
+	totalJobs := int64(totalHosts) * int64(len(ports))
+
+	var mu sync.Mutex
+	hostPriority := make(map[string]string)
+	allResults := make(map[string]*scanRecord)
+	var strongCandidates []scanRecord
+	var completedJobs int64
+
+	// ==================== STAGE 1: RAW PROBING ====================
+	updateStatus(chatID, statusMsgID, "🔄 *Stage 1/2:* Scanning for live holes...")
+
+	ticker := time.NewTicker(2 * time.Second)
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				completed := atomic.LoadInt64(&completedJobs)
+				if completed >= totalJobs {
+					return
+				}
+				if completed == 0 {
+					continue
+				}
+				percent := float64(completed) / float64(totalJobs) * 100
+
+				mu.Lock()
+				found := len(strongCandidates)
+				mu.Unlock()
+
+				text := fmt.Sprintf(
+					"🔄 *Stage 1/2: Probing...*\n\n📊 Progress: `%.0f%%` (%d/%d)\n💎 Candidates: `%d`",
+					percent, completed, totalJobs, found,
+				)
+				updateStatus(chatID, statusMsgID, text)
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	concurrency := 150
+	semaphore := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for _, h := range hosts {
+		for _, port := range ports {
+			wg.Add(1)
+			semaphore <- struct{}{}
+
+			go func(targetHost string, targetPort int) {
+				defer wg.Done()
+				defer func() { <-semaphore }()
+				defer func() {
+					if r := recover(); r != nil {
+						atomic.AddInt64(&completedJobs, 1)
+					}
+				}()
+
+				// 1. Resolve IP
+				ip, err := resolveIPv4(targetHost)
+				if err != nil {
+					atomic.AddInt64(&completedJobs, 1)
+					return
+				}
+
+				// 2. Run Engine
+				_, info, label, tlsRaw := classifyWithProbes(targetHost, ip, targetPort)
+				info.IP = ip
+
+				if info.HTTPStatus == "" || info.HTTPStatus == "000" {
+					atomic.AddInt64(&completedJobs, 1)
+					return
+				}
+
+				// 3. Preliminary Scoring
+				finalPrio, qualityScore := calculateScore(label, info)
+
+				// Determine bugType
+				labelUpper := strings.ToUpper(label)
+				bugType := "CDN_HOST"
+				switch {
+				case strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC"):
+					bugType = "H3_QUIC"
+				case strings.Contains(info.HTTPStatus, "101") || strings.Contains(labelUpper, "WS"):
+					bugType = "WS"
+				case strings.Contains(labelUpper, "REALITY"):
+					bugType = "REALITY"
+				case strings.Contains(labelUpper, "SPOOF") || labelUpper == "BUGHOST CONFIRMED":
+					bugType = "SPOOF"
+				}
+
+				record := &scanRecord{
+					host:      targetHost,
+					port:      targetPort,
+					priority:  finalPrio,
+					status:    info.HTTPStatus,
+					server:    info.Server,
+					cn:        info.CommonName,
+					tlsRaw:    tlsRaw,
+					latencyMs: info.LatencyMs,
+					bugType:   bugType,
+					score:     qualityScore,
+					info:      info,
+					label:     label,
+				}
+
+				mu.Lock()
+				key := targetHost + ":" + strconv.Itoa(targetPort)
+				if existing, exists := allResults[key]; !exists || qualityScore > existing.score {
+					allResults[key] = record
+				}
+
+				if finalPrio == "STRONG" {
+					strongCandidates = append(strongCandidates, *record)
+				}
+
+				if priorityToRank(finalPrio) > priorityToRank(hostPriority[targetHost]) {
+					hostPriority[targetHost] = finalPrio
+				}
+				mu.Unlock()
+
+				atomic.AddInt64(&completedJobs, 1)
+			}(h, port)
+		}
+	}
+	wg.Wait()
+	ticker.Stop()
+	close(done)
+
+	stage1Elapsed := time.Since(startTime).Round(time.Second)
+
+	// ==================== STAGE 2: STRICT DEEP VERIFY ====================
+	var deepVerifiedCount, deepFailedCount int64
+	verifiedTargets := make([]map[string]string, 0)
+	failedTargets := make([]map[string]string, 0)
+
+	seen := make(map[string]bool)
+	uniqueCandidates := make([]scanRecord, 0)
+	for _, c := range strongCandidates {
+		key := c.host + ":" + strconv.Itoa(c.port)
+		if !seen[key] && c.info.IP != "" {
+			seen[key] = true
+			uniqueCandidates = append(uniqueCandidates, c)
+		}
+	}
+	strongCandidates = uniqueCandidates
+
+	if len(strongCandidates) > 0 {
+		updateStatus(chatID, statusMsgID, fmt.Sprintf(
+			"🔬 *Stage 2/2:* Deep Verifying %d candidates...\n\n⚡ Stage 1 done in %v",
+			len(strongCandidates), stage1Elapsed))
+
+		var dvWg sync.WaitGroup
+		dvSemaphore := make(chan struct{}, 30)
+		var dvCompleted int64
+
+		dvTicker := time.NewTicker(3 * time.Second)
+		dvDone := make(chan bool)
+		go func() {
+			for {
+				select {
+				case <-dvTicker.C:
+					done := atomic.LoadInt64(&dvCompleted)
+					total := int64(len(strongCandidates))
+					verified := atomic.LoadInt64(&deepVerifiedCount)
+					failed := atomic.LoadInt64(&deepFailedCount)
+
+					percent := 0.0
+					if total > 0 {
+						percent = float64(done) / float64(total) * 100
+					}
+
+					text := fmt.Sprintf(
+						"🔬 *Stage 2/2: Deep Verifying...*\n\n"+
+							"📊 Progress: %.0f%% (%d/%d)\n"+
+							"✅ Passed: %d | ❌ Failed: %d",
+						percent, done, total, verified, failed,
+					)
+					updateStatus(chatID, statusMsgID, text)
+				case <-dvDone:
+					return
+				}
+			}
+		}()
+
+		for _, c := range strongCandidates {
+			dvWg.Add(1)
+			dvSemaphore <- struct{}{}
+
+			go func(cand scanRecord) {
+				defer dvWg.Done()
+				defer func() { <-dvSemaphore }()
+				defer func() {
+					if r := recover(); r != nil {
+						atomic.AddInt64(&dvCompleted, 1)
+						atomic.AddInt64(&deepFailedCount, 1)
+					}
+				}()
+
+				ip := cand.info.IP
+				if ip == "" {
+					var err error
+					ip, err = resolveIPv4(cand.host)
+					if err != nil || ip == "" {
+						atomic.AddInt64(&dvCompleted, 1)
+						atomic.AddInt64(&deepFailedCount, 1)
+						return
+					}
+				}
+
+				verified := deepVerify(cand.host, ip, cand.port, cand.label, cand.info)
+
+				mu.Lock()
+				key := cand.host + ":" + strconv.Itoa(cand.port)
+
+				isBloated := cand.info.ContentLength > 25000
+				finalScore := verified.QualityScore
+				if isBloated && !strings.Contains(cand.info.HTTPStatus, "101") {
+					finalScore = finalScore / 3
+				}
+
+				vu := strings.ToUpper(verified.VerifiedBug)
+				isStandardCDN := strings.Contains(vu, "DIRECT TLS") && cand.port == 443
+				if isStandardCDN {
+					cnClean := strings.ToLower(strings.ReplaceAll(cand.info.CommonName, "*.", ""))
+					hostClean := strings.ToLower(cand.host)
+					cdnMismatch := cnClean != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean)
+
+					if !cdnMismatch {
+						finalScore = finalScore / 3
+					}
+				}
+
+				if verified.IsWorking && finalScore >= 65 {
+					newBugType := verified.VerifiedBug
+					newLabel := verified.VerifiedBug
+
+					switch {
+					case strings.Contains(vu, "WEBSOCKET"):
+						newBugType = "WS_PRO"
+						newLabel = "WS"
+					case strings.Contains(vu, "HTTP/3") || strings.Contains(vu, "QUIC"):
+						newBugType = "H3_QUIC"
+						newLabel = "H3_QUIC"
+					case strings.Contains(cand.label, "REALITY"):
+						newBugType = "REALITY_FIX"
+						newLabel = "REALITY"
+					case strings.Contains(vu, "SNI SPOOF"):
+						newBugType = "SPOOF"
+						newLabel = "SPOOF"
+					case strings.Contains(vu, "CDN"):
+						newBugType = "CDN_FRONT"
+						newLabel = "CDN_FRONT"
+					}
+
+					newStatus := "VERIFIED"
+					newServer := cand.info.Server
+					newCN := cand.info.CommonName
+					if verified.WorkingHeader != nil {
+						if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
+							newCN = sni
+						}
+					}
+
+					deepVerifiedStr := fmt.Sprintf("YES (%s|%d)", newBugType, finalScore)
+
+					if rec, exists := allResults[key]; exists {
+						rec.deepVerified = deepVerifiedStr
+						rec.score = finalScore
+						rec.priority = "STRONG"
+						rec.bugType = newBugType
+						rec.status = newStatus
+						rec.server = newServer
+						rec.cn = newCN
+						rec.label = newLabel
+					}
+
+					verifiedTargets = append(verifiedTargets, map[string]string{
+						"host":          cand.host,
+						"port":          strconv.Itoa(cand.port),
+						"sni":           newCN,
+						"tag":           newBugType,
+						"status":        newStatus,
+						"score":         strconv.Itoa(finalScore),
+						"server":        newServer,
+						"cn":            newCN,
+						"deep_verified": deepVerifiedStr,
+						"latency":       strconv.Itoa(cand.latencyMs),
+					})
+
+					hostPriority[cand.host] = "STRONG"
+					atomic.AddInt64(&deepVerifiedCount, 1)
+
+				} else {
+					errorMsg := verified.ErrorMessage
+					if errorMsg == "" {
+						errorMsg = "Low quality / Fake bughost"
+					}
+
+					deepVerifiedStr := fmt.Sprintf("FAILED (%s)", errorMsg)
+					newScore := cand.score / 3
+					if newScore < 5 {
+						newScore = 5
+					}
+
+					if rec, exists := allResults[key]; exists {
+						rec.deepVerified = deepVerifiedStr
+						rec.score = newScore
+						rec.priority = "WEAK"
+					}
+
+					failedTargets = append(failedTargets, map[string]string{
+						"host":          cand.host,
+						"port":          strconv.Itoa(cand.port),
+						"tag":           cand.bugType,
+						"status":        "FAILED",
+						"score":         strconv.Itoa(newScore),
+						"server":        cand.info.Server,
+						"cn":            cand.info.CommonName,
+						"deep_verified": deepVerifiedStr,
+						"latency":       strconv.Itoa(cand.latencyMs),
+					})
+
+					hostPriority[cand.host] = "WEAK"
+					atomic.AddInt64(&deepFailedCount, 1)
+				}
+				mu.Unlock()
+
+				atomic.AddInt64(&dvCompleted, 1)
+			}(c)
+		}
+
+		dvWg.Wait()
+		dvTicker.Stop()
+		close(dvDone)
+	}
+
+	csvFile := filepath.Join(os.TempDir(), fmt.Sprintf("Paragon_Mass_%d.csv", time.Now().Unix()))
+	out, err := os.Create(csvFile)
+	if err == nil {
+		writer := csv.NewWriter(out)
+		writer.Write([]string{"Host", "Port", "Priority", "Status", "Server", "CN", "TLS_Raw", "Latency(ms)", "BugType", "Score", "DeepVerified"})
+
+		mu.Lock()
+		for _, rec := range allResults {
+			writer.Write([]string{
+				rec.host, strconv.Itoa(rec.port), rec.priority, rec.status,
+				rec.server, rec.cn, rec.tlsRaw, strconv.Itoa(rec.latencyMs), rec.bugType, strconv.Itoa(rec.score), rec.deepVerified,
+			})
+		}
+		mu.Unlock()
+		writer.Flush()
+		out.Close()
+	}
+
+	elapsed := time.Since(startTime).Round(time.Second)
+	speed := 0.0
+	if elapsed.Seconds() > 0 {
+		speed = float64(totalJobs) / elapsed.Seconds()
+	}
+
+	sort.Slice(verifiedTargets, func(i, j int) bool {
+		scoreI, _ := strconv.Atoi(verifiedTargets[i]["score"])
+		scoreJ, _ := strconv.Atoi(verifiedTargets[j]["score"])
+		return scoreI > scoreJ
+	})
+
+	var sb strings.Builder
+	sb.WriteString("```\n")
+	sb.WriteString("╭──────────────────────────╮\n")
+	sb.WriteString("│  💎 PARAGON MASS RESULT  │\n")
+	sb.WriteString("╰──────────────────────────╯\n")
+	sb.WriteString(fmt.Sprintf("Hosts : %d | Jobs: %d\n", totalHosts, totalJobs))
+	sb.WriteString(fmt.Sprintf("Time  : %v | Speed: %.1f/s\n", elapsed, speed))
+	sb.WriteString(fmt.Sprintf("🔬 OK : %d | ❌ Fake: %d\n",
+		atomic.LoadInt64(&deepVerifiedCount),
+		atomic.LoadInt64(&deepFailedCount)))
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	if len(verifiedTargets) > 0 {
+		sb.WriteString("\n✅ VERIFIED TARGETS:\n\n")
+		limit := 10
+		for i, v := range verifiedTargets {
+			if i >= limit {
+				break
+			}
+			icon := "✅"
+			tag := v["tag"]
+			switch tag {
+			case "H3_QUIC":
+				icon = "⚡"
+				tag = "H3/QUIC"
+			case "WS_PRO", "WS":
+				icon = "🔌"
+				tag = "WS-PRO"
+			case "REALITY_FIX", "REALITY":
+				icon = "🔮"
+				tag = "REALITY"
+			case "SPOOF":
+				icon = "🎭"
+				tag = "SPOOF"
+			case "CDN_FRONT":
+				icon = "☁️"
+				tag = "CDN-FRONT"
+			}
+			sb.WriteString(fmt.Sprintf("%s %-18s [%s]\n", icon, v["host"], tag))
+			sb.WriteString(fmt.Sprintf("   PORT: %-5s | SC: %-3s | L: %-4sms\n", v["port"], v["score"], v["latency"]))
+			sb.WriteString(fmt.Sprintf("   CDN: %s\n", v["server"]))
+			sb.WriteString(fmt.Sprintf("   SNI: %s\n", v["cn"]))
+			sb.WriteString(fmt.Sprintf("   🔬: %s\n", v["deep_verified"]))
+			sb.WriteString("   ────────────────────────\n")
+		}
+	}
+
+	if len(failedTargets) > 0 {
+		sb.WriteString(fmt.Sprintf("\n❌ FAILED (%d):\n", len(failedTargets)))
+		limit := 3
+		for i, v := range failedTargets {
+			if i >= limit {
+				sb.WriteString(fmt.Sprintf("   ... and %d more\n", len(failedTargets)-limit))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("   • %-18s [%s] | %s\n",
+				v["host"], v["tag"], v["deep_verified"]))
+		}
+	}
+
+	if len(verifiedTargets) == 0 {
+		sb.WriteString("\n⚠️ No high-quality bug found.\n")
+	}
+	sb.WriteString("```")
+
+	updateStatus(chatID, statusMsgID, sb.String())
+
+	fileBytes, _ := os.ReadFile(csvFile)
+	if len(fileBytes) > 0 {
+		doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{
+			Name:  fmt.Sprintf("DeepVerify_%s.csv", time.Now().Format("150405")),
+			Bytes: fileBytes,
+		})
+		doc.Caption = fmt.Sprintf("📄 *Deep Verify Report*\n🔥 *Candidates:* %d\n✅ *Verified:* %d\n❌ *Failed:* %d\n⏱ *Time:* %v",
+			len(strongCandidates),
+			atomic.LoadInt64(&deepVerifiedCount),
+			atomic.LoadInt64(&deepFailedCount),
+			elapsed)
+		doc.ParseMode = "Markdown"
+		bot.Send(doc)
+	}
+
+	os.Remove(csvFile)
+	clearSessionState(chatID)
+}
+
 func executeSubdomainScan(chatID int64, domain string) {
 	domains := strings.Split(domain, ",")
 	var cleanDomains []string
@@ -4398,6 +4419,13 @@ func executeSubdomainScan(chatID int64, domain string) {
 			cleanDomains = append(cleanDomains, d)
 		}
 	}
+
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
 
 	if len(cleanDomains) == 0 {
 		bot.Send(tgbotapi.NewMessage(chatID, "❌ No valid domains."))
@@ -5175,12 +5203,16 @@ func handleUsersCommand(update tgbotapi.Update) {
 	totalScans := 0
 	bannedCount := 0
 	activeCount := 0
+	active24h := 0
 	for _, u := range userData.Users {
 		totalScans += u.Scans
 		if u.Banned {
 			bannedCount++
 		} else {
 			activeCount++
+		}
+		if time.Since(u.LastScan) < 24*time.Hour {
+			active24h++
 		}
 	}
 	umMutex.RUnlock()
@@ -5195,6 +5227,7 @@ func handleUsersCommand(update tgbotapi.Update) {
 	sb.WriteString(fmt.Sprintf("   ✅ Active: `%d`\n", activeCount))
 	sb.WriteString(fmt.Sprintf("   🚫 Banned: `%d`\n", bannedCount))
 	sb.WriteString(fmt.Sprintf("🔍 *Total Scans:* `%d`\n", totalScans))
+	sb.WriteString(fmt.Sprintf("📊 *Active (24h):* `%d` users\n", active24h))
 	sb.WriteString(fmt.Sprintf("⏱️ *Uptime:* `%s`\n", uptimeStr))
 	sb.WriteString(fmt.Sprintf("📦 *Version:* `%s`\n", version))
 	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━")

@@ -83,6 +83,13 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		}
 	}()
 
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
+
 	var totalIPs int
 	var targetLabel string
 	var wg sync.WaitGroup

@@ -685,6 +685,13 @@ func executePayloadTest(chatID int64, target string) {
 		}
 	}()
 
+	umMutex.Lock()
+	if u, exists := userData.Users[chatID]; exists {
+		u.Scans++
+		u.LastScan = time.Now()
+	}
+	umMutex.Unlock()
+
 	target = strings.TrimSpace(target)
 	if target == "" || !strings.Contains(target, ".") {
 		msg := tgbotapi.NewMessage(chatID, "❌ Invalid host\n\nFormat: `host [vps] [sni]`\nExample: `airasia.com`")
