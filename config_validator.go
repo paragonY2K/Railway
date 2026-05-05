@@ -144,7 +144,8 @@ func showAdvancedTestPrompt(chatID int64, messageID int) {
 		"• netbanking.hdfcbank.com:80 | cloudfront.net | vps.com:443 | PATCH / HTTP/1.1...\n" +
 		"• 0.facebook.com:443 | *.facebook.com | vps.com:443 | GET wss://bug.com/...\n" +
 		"• example.com:80 | - | vps.com:443 | GET / HTTP/1.1...\n\n" +
-		"💡 Proxy = Bughost | SNI = Zero-Rated Host | VPS = Backend\n" +
+		"💡 Proxy = Bughost | SNI = Zero-Rated Host (port 443 only) | VPS = Backend\n" +
+		"⚠️ SNI only works with TLS (port 443, 8443). Port 80 will ignore SNI.\n" +
 		"Use '-' to skip a field\n```"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(

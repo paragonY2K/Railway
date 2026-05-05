@@ -4836,9 +4836,11 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 
 	case "menu_cancel":
+		bot.Send(tgbotapi.NewCallback(callback.ID, "❌ Cancelled"))
+
 		session := getSession(chatID)
 		if session.CancelFunc != nil {
-			session.CancelFunc() // ← STOP SCAN!
+			session.CancelFunc()
 		}
 		clearSessionState(chatID)
 		msg := tgbotapi.NewMessage(chatID, "❌ Cancelled. Returning to menu.")
