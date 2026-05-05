@@ -232,6 +232,26 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 		rec.Source = "Reality Tunnel Config"
 		rec.Note = "🔮 Reality tunnel. Most stealth protocol."
 
+	case strings.Contains(host, "youtube") || strings.Contains(host, "google") || strings.Contains(host, "run.app"):
+		rec.Type = "VLESS + Inject (YouTube/Google)"
+		rec.Network = "ws"
+		rec.Security = "tls"
+		rec.SNI = host
+		rec.Payload = "[method] [host_port] [protocol][crlf]Host: [host/vps][crlf]Service: SSH[crlf]Mode: Bypass[crlf][crlf]"
+		rec.AppList = "Dark Tunnel, HTTP Custom"
+		rec.Source = "YouTube VLESS Inject Config (verified working)"
+		rec.Note = "🔐 SSH Bypass headers! 'Service: SSH' + 'Mode: Bypass' are CRITICAL!"
+
+	case strings.Contains(host, "run.app"):
+		rec.Type = "Trojan / VLESS (Google Cloud Run)"
+		rec.Network = "ws"
+		rec.Security = "tls"
+		rec.SNI = host
+		rec.Payload = "" // Trojan = no payload needed
+		rec.AppList = "V2RayNG, Sing-box"
+		rec.Source = "Trojan Google Cloud Run Config (verified working)"
+		rec.Note = "☁️ Google Cloud Run backend. Direct TLS — NO payload needed!"
+
 	// =============================================
 	// DEFAULT
 	// =============================================

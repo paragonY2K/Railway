@@ -52,6 +52,10 @@ var payloadList = []struct {
 		Name:     "Twitter/X Style",
 		Template: "CONNECT [host]:443 HTTP/1.1[crlf]Host: [host][crlf]User-Agent: TwitterAndroid/10[crlf][crlf]",
 	},
+	{
+		Name:     "Facebook API Mimic Style",
+		Template: "GET http://h.facebook.com/hr/zsh/api?h_token=[token] HTTP/1.1[crlf]Host: h.facebook.com[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]CONNECT [host_port] [protocol][crlf][crlf]",
+	},
 
 	// =============================================
 	// PROXY FORWARDING (PROVEN)
@@ -151,5 +155,13 @@ var payloadList = []struct {
 	{
 		Name:     "Trace XFF 1111 WS",
 		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf]X-Forwarded-For: 1.1.1.1[crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+	},
+	{
+		Name:     "PATCH SSH Bypass Style",
+		Template: "PATCH / HTTP/1.1[crlf]Host: [host][crlf]Host: example.com[crlf]Service: SSH[crlf]ModeX: Bypass[crlf]Upgrade: websocket[crlf]User-Agent: [ua][crlf][crlf]",
+	},
+	{
+		Name:     "Dual CDN Trace Style",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host]][crlf][crlf]RNG-RAY / HTTP/1.1[crlf]Host: [host/vps][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
 	},
 }

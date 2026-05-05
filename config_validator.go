@@ -56,7 +56,10 @@ type FullValidation struct {
 func showConfigValidatorMenu(chatID int64, messageID int) {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔹 Quick Test", "cfg_quick"),
+			tgbotapi.NewInlineKeyboardButtonData("🔹 Quick Test (2-Layer)", "cfg_quick"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔐 Advanced (3-Layer)", "cfg_adv"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔸 Step by Step", "cfg_step"),
@@ -74,7 +77,8 @@ func showConfigValidatorMenu(chatID int64, messageID int) {
 		"│   ⚙️ CONFIG VALIDATOR    │\n" +
 		"╰─────────────────────────╯\n\n" +
 		"Select test mode:\n\n" +
-		"🔹 Quick — paste config\n" +
+		"🔹 Quick — 2-layer (Proxy → VPS)\n" +
+		"🔐 Advanced — 3-layer (Proxy → SNI → VPS)\n" +
 		"🔸 Step — fill one by one\n" +
 		"📋 Scan — from scanner result\n```"
 
@@ -102,14 +106,14 @@ func showQuickTestPrompt(chatID int64, messageID int) {
 		"╭─────────────────────────╮\n" +
 		"│  ⚙️ QUICK CONFIG TEST   │\n" +
 		"╰─────────────────────────╯\n\n" +
-		"Send your config:\n\n" +
-		"Format: proxy:port|sni|payload|target\n\n" +
-		"Examples:\n" +
-		"• example.com:80 (proxy only)\n" +
-		"• example.com:443|sni-domain.com (proxy+TLS+SNI)\n" +
-		"• -|sni-domain.com|GET /... (SNI+payload)\n" +
-		"• example.com:80|-|-|vps.com:443 (proxy+target)\n\n" +
-		"⚠️ SNI only works with TLS (port 443)!\n" +
+		"📋 Format:\n" +
+		"Proxy:port | SNI/Zero-Rated | Payload | VPS:port\n\n" +
+		"📋 Examples:\n" +
+		"• netbanking.hdfcbank.com:80\n" +
+		"• netbanking.hdfcbank.com:80 | cloudfront.net\n" +
+		"• netbanking.hdfcbank.com:80 | cloudfront.net | PATCH / HTTP/1.1...\n" +
+		"• netbanking.hdfcbank.com:80 | cloudfront.net | PATCH /... | vps.com:443\n\n" +
+		"💡 Proxy = Bughost | SNI = Zero-Rated Host | VPS = Backend\n" +
 		"Use '-' to skip a field\n```"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -127,6 +131,37 @@ func showQuickTestPrompt(chatID int64, messageID int) {
 	bot.Send(edit)
 
 	setSessionState(chatID, "config_quick_input")
+}
+
+func showAdvancedTestPrompt(chatID int64, messageID int) {
+	text := "```\n" +
+		"╭─────────────────────────╮\n" +
+		"│  ⚙️ 3-LAYER CONFIG TEST │\n" +
+		"╰─────────────────────────╯\n\n" +
+		"📋 Format:\n" +
+		"Proxy:port | SNI/Zero-Rated | VPS:port | Payload\n\n" +
+		"📋 Examples:\n" +
+		"• netbanking.hdfcbank.com:80 | cloudfront.net | vps.com:443 | PATCH / HTTP/1.1...\n" +
+		"• 0.facebook.com:443 | *.facebook.com | vps.com:443 | GET wss://bug.com/...\n" +
+		"• example.com:80 | - | vps.com:443 | GET / HTTP/1.1...\n\n" +
+		"💡 Proxy = Bughost | SNI = Zero-Rated Host | VPS = Backend\n" +
+		"Use '-' to skip a field\n```"
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💉 Pick Payload", "cfg_adv_payload_pick"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", "menu_cancel"),
+		),
+	)
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &keyboard
+	bot.Send(edit)
+
+	setSessionState(chatID, "config_adv_input")
 }
 
 // =============================================
@@ -944,6 +979,120 @@ func executeConfigValidation(chatID int64, input string) {
 	bot.Send(editMsg)
 
 	clearSessionState(chatID)
+}
+
+func executeAdvancedConfigValidation(chatID int64, input string) {
+	defer func() {
+		if r := recover(); r != nil {
+			bot.Send(tgbotapi.NewMessage(chatID, "❌ *Error*\n```\n"+fmt.Sprintf("%v", r)+"\n```"))
+			clearSessionState(chatID)
+		}
+	}()
+
+	config := parseAdvancedConfig(input)
+
+	if config.ProxyHost == "" && config.TargetHost == "" {
+		bot.Send(tgbotapi.NewMessage(chatID, "❌ Need at least Proxy or VPS."))
+		clearSessionState(chatID)
+		return
+	}
+
+	statusMsg := tgbotapi.NewMessage(chatID, "⚙️ *3-Layer Testing...*\n━━━━━━━━━━━━━━━━━━━━\n⏳ Testing Proxy → SNI → VPS...")
+	statusMsg.ParseMode = "Markdown"
+	sentMsg, _ := bot.Send(statusMsg)
+
+	result := validateUserConfig(config)
+
+	var sb strings.Builder
+	sb.WriteString("```\n")
+	sb.WriteString("╭─────────────────────────╮\n")
+	sb.WriteString("│  ⚙️ 3-LAYER VALIDATION   │\n")
+	sb.WriteString("╰─────────────────────────╯\n\n")
+
+	sb.WriteString("📋 CONFIG TESTED:\n")
+	sb.WriteString(fmt.Sprintf("   1. Proxy: %s:%d\n", config.ProxyHost, config.ProxyPort))
+	if config.SNI != "" {
+		sb.WriteString(fmt.Sprintf("   2. SNI/Zero-Rated: %s\n", config.SNI))
+	}
+	if config.TargetHost != "" {
+		sb.WriteString(fmt.Sprintf("   3. VPS (Backend): %s:%d\n", config.TargetHost, config.TargetPort))
+	}
+	if config.Payload != "" {
+		prev := config.Payload
+		if len(prev) > 60 {
+			prev = prev[:60] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("   4. Payload: %s\n", prev))
+	}
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	for _, step := range result.Steps {
+		icon := "✅"
+		if !step.Success {
+			icon = "❌"
+		}
+		sb.WriteString(fmt.Sprintf("%s %s\n", icon, step.Message))
+		if step.Details != "" {
+			sb.WriteString(fmt.Sprintf("   📝 %s\n", step.Details))
+		}
+		if step.ResponseCode != "" {
+			sb.WriteString(fmt.Sprintf("   📡 %s\n", step.ResponseCode))
+		}
+	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	scoreBar := ""
+	barLen := 10
+	filled := result.Score * barLen / 100
+	if filled > barLen {
+		filled = barLen
+	}
+	scoreBar = "[" + strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled) + "]"
+	sb.WriteString(fmt.Sprintf("📊 Score: %d/100 %s\n", result.Score, scoreBar))
+	sb.WriteString(fmt.Sprintf("%s\n", result.Summary))
+	sb.WriteString("```")
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
+	editMsg.ParseMode = "Markdown"
+	editMsg.ReplyMarkup = nil
+	bot.Send(editMsg)
+
+	clearSessionState(chatID)
+}
+
+func parseAdvancedConfig(input string) UserConfig {
+	config := UserConfig{}
+	parts := strings.Split(input, "|")
+
+	if len(parts) >= 1 && parts[0] != "" && parts[0] != "-" {
+		if h, p, err := net.SplitHostPort(parts[0]); err == nil {
+			config.ProxyHost = h
+			config.ProxyPort, _ = strconv.Atoi(p)
+		} else {
+			config.ProxyHost = parts[0]
+			config.ProxyPort = 443
+		}
+	}
+
+	if len(parts) >= 2 && parts[1] != "" && parts[1] != "-" {
+		config.SNI = parts[1]
+	}
+
+	if len(parts) >= 3 && parts[2] != "" && parts[2] != "-" {
+		if h, p, err := net.SplitHostPort(parts[2]); err == nil {
+			config.TargetHost = h
+			config.TargetPort, _ = strconv.Atoi(p)
+		} else {
+			config.TargetHost = parts[2]
+			config.TargetPort = 443
+		}
+	}
+
+	if len(parts) >= 4 && parts[3] != "" && parts[3] != "-" {
+		config.Payload = parts[3]
+	}
+
+	return config
 }
 
 // =============================================

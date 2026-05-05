@@ -3750,16 +3750,12 @@ func getMainMenuKeyboard() *tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("🔎 Subdomain", "menu_sub"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🛡 Domain Sniff", "menu_sniff"),
-			tgbotapi.NewInlineKeyboardButtonData("📝 Extract Domains", "menu_extract"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💉 Payload Test", "menu_payload"),
 			tgbotapi.NewInlineKeyboardButtonData("⚙️ Config Validator", "menu_cfgval"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🆔 My HWID", "menu_hwid"),
-			tgbotapi.NewInlineKeyboardButtonData("ℹ️ About", "menu_about"),
+			tgbotapi.NewInlineKeyboardButtonData("🛡 Domain Sniff", "menu_sniff"),
+			tgbotapi.NewInlineKeyboardButtonData("📝 Extract", "menu_extract"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💬 Feedback", "menu_feedback"),
@@ -4608,7 +4604,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	case "menu_single":
 		setSessionState(chatID, "awaiting_single_target")
-		msg := tgbotapi.NewMessage(chatID, "*🔍 Single Target Scan*\n━━━━━━━━━━━━━━━━━━━━\n\nSend target now:\n• `www,speedtest.net`\n• `1.1.1.1:443`")
+		msg := tgbotapi.NewMessage(chatID, "*🔍 Single Target Scan*\n━━━━━━━━━━━━━━━━━━━━\n\nSend target now:\n• `www.speedtest.net`\n• `1.1.1.1:443`")
 		msg.ParseMode = "MarkdownV2"
 		msg.ReplyMarkup = nil
 		bot.Send(msg)
@@ -4709,6 +4705,14 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		return
 
 	case "cfg_payload_pick":
+		showPayloadPicker(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_adv":
+		showAdvancedTestPrompt(chatID, callback.Message.MessageID)
+		return
+
+	case "cfg_adv_payload_pick":
 		showPayloadPicker(chatID, callback.Message.MessageID)
 		return
 
@@ -4994,6 +4998,11 @@ func handleMessage(update tgbotapi.Update) {
 		go executeConfigValidation(chatID, text)
 		return
 
+	case "config_adv_input":
+		clearSessionState(chatID)
+		go executeAdvancedConfigValidation(chatID, text)
+		return
+
 	case "config_payload_select":
 		idx, err := strconv.Atoi(strings.TrimSpace(text))
 		if err == nil && idx >= 1 && idx <= len(payloadList) {
@@ -5255,20 +5264,23 @@ func handleUserListCommand(update tgbotapi.Update) {
 				icon = "🔴"
 			}
 
-			// Display name — guna FirstName
 			displayName := u.Info.FirstName
-			if displayName == "" {
+			if displayName == "" || len(strings.TrimSpace(displayName)) == 0 {
 				displayName = u.Info.Username
 			}
-			if displayName == "" {
+			if displayName == "" || len(strings.TrimSpace(displayName)) == 0 {
+				displayName = fmt.Sprintf("User%d", u.ID)
+			}
+
+			displayName = strings.ToValidUTF8(displayName, "")
+			if displayName == "" || len(strings.TrimSpace(displayName)) == 0 {
 				displayName = fmt.Sprintf("User%d", u.ID)
 			}
 			displayName = html.EscapeString(displayName)
 
-			// Username (kalau ada)
 			usernameStr := ""
 			if u.Info.Username != "" {
-				usernameStr = fmt.Sprintf(" @%s", u.Info.Username)
+				usernameStr = fmt.Sprintf(" @%s", html.EscapeString(u.Info.Username))
 			}
 
 			scans := u.Info.Scans
