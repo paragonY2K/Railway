@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -278,57 +279,57 @@ func getRecommendation(host string, ip string, port int, server string, httpStat
 }
 
 func formatRecommendation(host string, rec RecommendConfig) string {
-	output := fmt.Sprintf(`💡 *Ready to Use (Verified Template):*
+	output := fmt.Sprintf(`💡 %s
 
-📋 Bughost:
-Address: %s
-Port: %d
-Network: %s
-Security: %s`, host, rec.Port, rec.Network, rec.Security)
+📋 %s:
+%s: %s
+%s: %d
+%s: %s
+%s: %s`,
+		toBoldUnicode("Ready to Use (Verified Template):"),
+		toBoldUnicode("Bughost"),
+		toBoldUnicode("Address"), host,
+		toBoldUnicode("Port"), rec.Port,
+		toBoldUnicode("Network"), rec.Network,
+		toBoldUnicode("Security"), rec.Security,
+	)
 
 	if rec.SNI != "" {
-		output += fmt.Sprintf("\nSNI: %s", rec.SNI)
+		output += fmt.Sprintf("\n%s: %s", toBoldUnicode("SNI"), rec.SNI)
 	}
 
 	if rec.Payload != "" {
 		output += fmt.Sprintf(`
 
-💉 Payload (for port %d):
+💉 %s:
 %s
 
-💡 Notes:
-• [host/vps] = This bughost OR your VPS`, rec.Port, rec.Payload)
-
-		if strings.Contains(rec.Payload, "CF-RAY") || strings.Contains(rec.Note, "Cloudflare") {
-			output += "\n• Cloudflare detected — CF-RAY header is critical!"
-		}
-		if strings.Contains(rec.Payload, "X-Online-Host") {
-			output += "\n• X-Online-Host header is critical!"
-		}
-		if strings.Contains(rec.Payload, "x-iorg-bsid") || strings.Contains(rec.Payload, "x-connected-to") {
-			output += "\n• Facebook impersonation — ALL 3 headers critical!"
-		}
-		if strings.Contains(rec.Payload, "X-Akamai-Request-ID") {
-			output += "\n• Akamai CDN — X-Akamai-Request-ID header is critical!"
-		}
+💡 %s:
+• [host] = This bughost OR your VPS`,
+			toBoldUnicode("Payload (for port "+strconv.Itoa(rec.Port)+")"),
+			rec.Payload,
+			toBoldUnicode("Notes"),
+		)
 	} else {
-		output += `
+		output += fmt.Sprintf(`
 
-💡 Notes:
+💡 %s:
 🔐 Direct TLS — NO payload needed!
 • Just set Address + Port + SNI
-• Works with Trojan, VLESS TLS, Shadowsocks`
+• Works with Trojan, VLESS TLS, Shadowsocks`,
+			toBoldUnicode("Notes"),
+		)
 	}
 
 	output += fmt.Sprintf(`
 
-📱 Apps: %s
-📋 Source: %s`, rec.AppList, rec.Source)
+📱 %s: %s
+📋 %s: %s`,
+		toBoldUnicode("Apps"), rec.AppList,
+		toBoldUnicode("Source"), rec.Source,
+	)
 
-	if rec.Note != "" && rec.Payload != "" {
-		output += fmt.Sprintf("\n\n%s", rec.Note)
-	}
-	if rec.Note != "" && rec.Payload == "" {
+	if rec.Note != "" {
 		output += fmt.Sprintf("\n\n%s", rec.Note)
 	}
 

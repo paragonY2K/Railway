@@ -163,10 +163,10 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 				elapsed := time.Since(startTime).Round(time.Second)
 				updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
 					"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
-						"Target: `%s`\n"+
-						"Workers: %d | IPs: %d\n"+
-						"Found: %d domains\n"+
-						"Time: %v\n\n"+
+						toBoldUnicode("Target")+": `%s`\n"+
+						toBoldUnicode("Workers")+": %d | "+toBoldUnicode("IPs")+": %d\n"+
+						toBoldUnicode("Found")+": %d domains\n"+
+						toBoldUnicode("Time")+": %v\n\n"+
 						"⏳ Still scanning...",
 					targetLabel, numWorkers, totalIPs, count, elapsed))
 			case <-done:
@@ -203,31 +203,46 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  🔎 DOMAIN SNIFF RESULT │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("Target : %s\n", targetLabel))
-	sb.WriteString(fmt.Sprintf("IPs    : %d\n", totalIPs))
-	sb.WriteString(fmt.Sprintf("Found  : %d domains\n", len(sortedDomains)))
-	sb.WriteString(fmt.Sprintf("Time   : %v\n", elapsed))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  🔎 " + toBoldUnicode("PARAGON DOMAIN SNIFF RESULT") + "           │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
+
+	sb.WriteString(toBoldUnicode("Target") + " : " + targetLabel + "\n")
+	sb.WriteString(toBoldUnicode("IPs") + "    : " + strconv.Itoa(totalIPs) + "\n")
+	sb.WriteString(toBoldUnicode("Found") + "  : " + strconv.Itoa(len(sortedDomains)) + " domains\n")
+	sb.WriteString(toBoldUnicode("Time") + "   : " + elapsed.String() + "\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	if len(sortedDomains) == 0 {
-		sb.WriteString("❌ No domains found.\n")
+		sb.WriteString("❌ " + toBoldUnicode("No domains found.") + "\n")
 	} else {
+		sb.WriteString("📋 " + toBoldUnicode("Discovered Domains") + ":\n\n")
 		limit := 30
 		if len(sortedDomains) < limit {
 			limit = len(sortedDomains)
 		}
 		for i := 0; i < limit; i++ {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, sortedDomains[i]))
+			icon := "🔹"
+			if strings.Contains(sortedDomains[i], "cdn") {
+				icon = "☁️"
+			} else if strings.Contains(sortedDomains[i], "mail") {
+				icon = "📧"
+			} else if strings.Contains(sortedDomains[i], "api") {
+				icon = "⚡"
+			} else if strings.Contains(sortedDomains[i], "www") {
+				icon = "🌐"
+			}
+			sb.WriteString(fmt.Sprintf("  %s %d. %s\n", icon, i+1, sortedDomains[i]))
 		}
 		if len(sortedDomains) > limit {
-			sb.WriteString(fmt.Sprintf("\n... and %d more\n", len(sortedDomains)-limit))
+			sb.WriteString(fmt.Sprintf("\n  ... and %d more\n", len(sortedDomains)-limit))
+			sb.WriteString("  📄 " + toBoldUnicode("Full list sent as file below") + "\n")
 		}
 	}
 
-	sb.WriteString("\n```")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Use /scan <domain> to test") + "\n")
+	sb.WriteString("```")
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
 	editMsg.ParseMode = "Markdown"
@@ -240,9 +255,9 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		err := os.WriteFile(fileName, []byte(content), 0644)
 		if err == nil {
 			doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(fileName))
-			doc.Caption = fmt.Sprintf("📄 *Domain Sniff Report*\nTarget: `%s`\nFound: %d domains",
+			doc.Caption = fmt.Sprintf("<b>Domain Sniff Report</b>\nTarget: %s\nFound: %d domains",
 				targetLabel, len(sortedDomains))
-			doc.ParseMode = "Markdown"
+			doc.ParseMode = "HTML"
 			bot.Send(doc)
 			os.Remove(fileName)
 		}
@@ -266,14 +281,14 @@ func handleSnifferInput(update tgbotapi.Update) {
 	parts := strings.Fields(text)
 	if len(parts) < 1 {
 		msg := tgbotapi.NewMessage(chatID, "```\n"+
-			"╭─────────────────────────╮\n"+
-			"│   🔎 DOMAIN SNIFF       │\n"+
-			"╰─────────────────────────╯\n\n"+
-			"🎯 Format: prefix start end\n\n"+
-			"📋 Examples:\n"+
-			"104.16.132. 1 254  → Single subnet\n"+
-			"104.16. 132 135    → /22 (4 subnets)\n"+
-			"104.16. 0 255      → /16 (65K IPs!)\n\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  🔎 "+toBoldUnicode("PARAGON DOMAIN SNIFF")+"                    │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Format")+": prefix start end\n\n"+
+			"📋 "+toBoldUnicode("Examples")+":\n"+
+			"  104.16.132. 1 254  → Single subnet\n"+
+			"  104.16. 132 135    → /22 (4 subnets)\n"+
+			"  104.16. 0 255      → /16 (65K IPs!)\n\n"+
 			"💡 Just prefix only = auto 0-255\n"+
 			"```")
 		msg.ParseMode = "Markdown"
@@ -332,9 +347,12 @@ func handleSnifferInput(update tgbotapi.Update) {
 	}
 
 	msg := tgbotapi.NewMessage(chatID, "```\n"+
-		"❌ Invalid prefix!\n\n"+
-		"Use 2 segments: 104.16. 0 255\n"+
-		"Or 3 segments: 104.16.132. 1 254\n```")
+		"╭──────────────────────────────────╮\n"+
+		"│  ❌ "+toBoldUnicode("INVALID PREFIX")+"                 │\n"+
+		"╰──────────────────────────────────╯\n\n"+
+		toBoldUnicode("Use 2 segments")+": 104.16. 0 255\n"+
+		toBoldUnicode("Or 3 segments")+": 104.16.132. 1 254\n"+
+		"```")
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = getCancelKeyboard()
 	bot.Send(msg)

@@ -73,10 +73,10 @@ func showConfigValidatorMenu(chatID int64, messageID int) {
 	)
 
 	text := "```\n" +
-		"╭─────────────────────────╮\n" +
-		"│   ⚙️ CONFIG VALIDATOR    │\n" +
-		"╰─────────────────────────╯\n\n" +
-		"Select test mode:\n\n" +
+		"╭──────────────────────────────────╮\n" +
+		"│  ⚙️ " + toBoldUnicode("PARAGON CONFIG VALIDATOR") + "              │\n" +
+		"╰──────────────────────────────────╯\n\n" +
+		toBoldUnicode("Select test mode") + ":\n\n" +
 		"🔹 Quick — 2-layer (Proxy → VPS)\n" +
 		"🔐 Advanced — 3-layer (Proxy → SNI → VPS)\n" +
 		"🔸 Step — fill one by one\n" +
@@ -103,16 +103,16 @@ func showConfigValidatorMenu(chatID int64, messageID int) {
 
 func showQuickTestPrompt(chatID int64, messageID int) {
 	text := "```\n" +
-		"╭─────────────────────────╮\n" +
-		"│  ⚙️ QUICK CONFIG TEST   │\n" +
-		"╰─────────────────────────╯\n\n" +
-		"📋 Format:\n" +
-		"Proxy:port | SNI/Zero-Rated | Payload | VPS:port\n\n" +
-		"📋 Examples:\n" +
-		"• netbanking.hdfcbank.com:80\n" +
-		"• netbanking.hdfcbank.com:80 | cloudfront.net\n" +
-		"• netbanking.hdfcbank.com:80 | cloudfront.net | PATCH / HTTP/1.1...\n" +
-		"• netbanking.hdfcbank.com:80 | cloudfront.net | PATCH /... | vps.com:443\n\n" +
+		"╭──────────────────────────────────╮\n" +
+		"│  ⚙️ " + toBoldUnicode("PARAGON QUICK CONFIG TEST") + "            │\n" +
+		"╰──────────────────────────────────╯\n\n" +
+		toBoldUnicode("Format") + ":\n" +
+		"Proxy:port | SNI | Payload | VPS:port\n\n" +
+		"📋 " + toBoldUnicode("Examples") + ":\n" +
+		"• netbanking.hdfcbank.com:443\n" +
+		"• netbanking.hdfcbank.com:443 | cloudfront.net\n" +
+		"• netbanking.hdfcbank.com:443 | cloudfront.net | PATCH / HTTP/1.1...\n" +
+		"• netbanking.hdfcbank.com:443 | cloudfront.net | PATCH /... | vps.com:443\n\n" +
 		"💡 Proxy = Bughost | SNI = Zero-Rated Host | VPS = Backend\n" +
 		"Use '-' to skip a field\n```"
 
@@ -135,16 +135,16 @@ func showQuickTestPrompt(chatID int64, messageID int) {
 
 func showAdvancedTestPrompt(chatID int64, messageID int) {
 	text := "```\n" +
-		"╭─────────────────────────╮\n" +
-		"│  ⚙️ 3-LAYER CONFIG TEST │\n" +
-		"╰─────────────────────────╯\n\n" +
-		"📋 Format:\n" +
-		"Proxy:port | SNI/Zero-Rated | VPS:port | Payload\n\n" +
-		"📋 Examples:\n" +
-		"• netbanking.hdfcbank.com:80 | cloudfront.net | vps.com:443 | PATCH / HTTP/1.1...\n" +
+		"╭──────────────────────────────────╮\n" +
+		"│  ⚙️ " + toBoldUnicode("PARAGON 3-LAYER CONFIG TEST") + "          │\n" +
+		"╰──────────────────────────────────╯\n\n" +
+		toBoldUnicode("Format") + ":\n" +
+		"Proxy:port | SNI | VPS:port | Payload\n\n" +
+		"📋 " + toBoldUnicode("Examples") + ":\n" +
+		"• netbanking.hdfcbank.com:443 | cloudfront.net | vps.com:443 | PATCH / HTTP/1.1...\n" +
 		"• 0.facebook.com:443 | *.facebook.com | vps.com:443 | GET wss://bug.com/...\n" +
 		"• example.com:80 | - | vps.com:443 | GET / HTTP/1.1...\n\n" +
-		"💡 Proxy = Bughost | SNI = Zero-Rated Host (port 443 only) | VPS = Backend\n" +
+		"💡 Proxy = Bughost | SNI = Zero-Rated | VPS = Backend\n" +
 		"⚠️ SNI only works with TLS (port 443, 8443). Port 80 will ignore SNI.\n" +
 		"Use '-' to skip a field\n```"
 
@@ -172,11 +172,10 @@ func showAdvancedTestPrompt(chatID int64, messageID int) {
 func showPayloadPicker(chatID int64, messageID int) {
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│   💉 PAYLOAD SELECTOR   │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString("Reply with number (1-28):\n\n")
-
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  💉 " + toBoldUnicode("PARAGON PAYLOAD SELECTOR") + "              │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
+	sb.WriteString(toBoldUnicode("Reply with number") + " (1-28):\n\n")
 	for i, p := range payloadList {
 		if i >= 28 {
 			break
@@ -225,15 +224,15 @@ func showStepPrompt(chatID int64, messageID int, step int, config UserConfig) {
 
 	switch step {
 	case 1:
-		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 1: PROXY HOST   │\n╰─────────────────────────╯\n\nEnter proxy host:port\n\nExample: thebestyou.com:80\nOr type '-' to skip\n```"
+		prompt = "```\n╭──────────────────────────────────╮\n│  ⚙️ " + toBoldUnicode("STEP 1: PROXY HOST") + "          │\n╰──────────────────────────────────╯\n\n" + toBoldUnicode("Enter proxy host:port") + "\n\nExample: thebestyou.com:80\nOr type '-' to skip\n```"
 		state = "config_step_proxy"
 
 	case 2:
-		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 2: SNI           │\n╰─────────────────────────╯\n\nEnter SNI (Server Name Indication)\n\nExample: nexus.u.com.my\nOr type '-' to skip\n```"
+		prompt = "```\n╭──────────────────────────────────╮\n│  ⚙️ " + toBoldUnicode("STEP 2: SNI") + "                 │\n╰──────────────────────────────────╯\n\n" + toBoldUnicode("Enter SNI") + " (Server Name Indication)\n\nExample: nexus.u.com.my\nOr type '-' to skip\n```"
 		state = "config_step_sni"
 
 	case 3:
-		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 3: PAYLOAD       │\n╰─────────────────────────╯\n\nChoose payload option:\n```"
+		prompt = "```\n╭──────────────────────────────────╮\n│  ⚙️ " + toBoldUnicode("STEP 3: PAYLOAD") + "             │\n╰──────────────────────────────────╯\n\n" + toBoldUnicode("Choose payload option") + ":\n```"
 
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -258,7 +257,7 @@ func showStepPrompt(chatID int64, messageID int, step int, config UserConfig) {
 		return
 
 	case 4:
-		prompt = "```\n╭─────────────────────────╮\n│  ⚙️ STEP 4: TARGET HOST   │\n╰─────────────────────────╯\n\nEnter target host:port\n\nExample: your-vps.com:443\nOr type '-' to skip\n```"
+		prompt = "```\n╭──────────────────────────────────╮\n│  ⚙️ " + toBoldUnicode("STEP 4: TARGET HOST") + "          │\n╰──────────────────────────────────╯\n\n" + toBoldUnicode("Enter target host:port") + "\n\nExample: your-vps.com:443\nOr type '-' to skip\n```"
 		state = "config_step_target"
 
 	case 5:
@@ -336,7 +335,6 @@ func handleStepInput(chatID int64, messageID int, input string) {
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Saved!\n\n📋 Current: %s", summary))
 	bot.Send(statusMsg)
 
-	// FIX: Hantar placeholder dulu untuk dapat messageID valid
 	sentMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, "⏳ Loading next step..."))
 	showStepPrompt(chatID, sentMsg.MessageID, step, config)
 }
@@ -400,13 +398,13 @@ func startFromScanResult(chatID int64, messageID int) {
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  📋 FROM SCAN RESULT    │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString("Auto-filled from scan:\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  📋 " + toBoldUnicode("FROM SCAN RESULT") + "              │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
+	sb.WriteString(toBoldUnicode("Auto-filled from scan") + ":\n")
 	sb.WriteString(fmt.Sprintf("   Proxy: %s:%d\n", host, port))
 	sb.WriteString(fmt.Sprintf("   SNI: %s\n", host))
-	sb.WriteString("\nNow choose payload:\n```")
+	sb.WriteString("\n" + toBoldUnicode("Now choose payload") + ":\n```")
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -925,11 +923,11 @@ func executeConfigValidation(chatID int64, input string) {
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  ⚙️ VALIDATION RESULT   │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  ⚙️ " + toBoldUnicode("VALIDATION RESULT") + "            │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
-	sb.WriteString("📋 CONFIG TESTED:\n")
+	sb.WriteString("📋 " + toBoldUnicode("CONFIG TESTED") + ":\n")
 	if config.ProxyHost != "" {
 		sb.WriteString(fmt.Sprintf("   Proxy: %s:%d\n", config.ProxyHost, config.ProxyPort))
 	}
@@ -946,7 +944,7 @@ func executeConfigValidation(chatID int64, input string) {
 	if config.TargetHost != "" {
 		sb.WriteString(fmt.Sprintf("   Target: %s:%d\n", config.TargetHost, config.TargetPort))
 	}
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	for _, step := range result.Steps {
 		icon := "✅"
@@ -962,16 +960,16 @@ func executeConfigValidation(chatID int64, input string) {
 		}
 	}
 
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	scoreBar := ""
 	barLen := 10
 	filled := result.Score * barLen / 100
 	if filled > barLen {
 		filled = barLen
 	}
-	scoreBar = "[" + strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled) + "]"
-	sb.WriteString(fmt.Sprintf("📊 Score: %d/100 %s\n", result.Score, scoreBar))
-	sb.WriteString(fmt.Sprintf("%s\n", result.Summary))
+	scoreBar = strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
+	sb.WriteString(fmt.Sprintf("📊 %s: %d/100 %s\n", toBoldUnicode("Score"), result.Score, scoreBar))
+	sb.WriteString(result.Summary + "\n")
 	sb.WriteString("```")
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
@@ -1006,11 +1004,11 @@ func executeAdvancedConfigValidation(chatID int64, input string) {
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  ⚙️ 3-LAYER VALIDATION   │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  ⚙️ " + toBoldUnicode("3-LAYER VALIDATION") + "           │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
-	sb.WriteString("📋 CONFIG TESTED:\n")
+	sb.WriteString("📋 " + toBoldUnicode("CONFIG TESTED") + ":\n")
 	sb.WriteString(fmt.Sprintf("   1. Proxy: %s:%d\n", config.ProxyHost, config.ProxyPort))
 	if config.SNI != "" {
 		sb.WriteString(fmt.Sprintf("   2. SNI/Zero-Rated: %s\n", config.SNI))
@@ -1025,7 +1023,7 @@ func executeAdvancedConfigValidation(chatID int64, input string) {
 		}
 		sb.WriteString(fmt.Sprintf("   4. Payload: %s\n", prev))
 	}
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	for _, step := range result.Steps {
 		icon := "✅"
@@ -1041,16 +1039,16 @@ func executeAdvancedConfigValidation(chatID int64, input string) {
 		}
 	}
 
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	scoreBar := ""
 	barLen := 10
 	filled := result.Score * barLen / 100
 	if filled > barLen {
 		filled = barLen
 	}
-	scoreBar = "[" + strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled) + "]"
-	sb.WriteString(fmt.Sprintf("📊 Score: %d/100 %s\n", result.Score, scoreBar))
-	sb.WriteString(fmt.Sprintf("%s\n", result.Summary))
+	scoreBar = strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
+	sb.WriteString(fmt.Sprintf("📊 %s: %d/100 %s\n", toBoldUnicode("Score"), result.Score, scoreBar))
+	sb.WriteString(result.Summary + "\n")
 	sb.WriteString("```")
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())

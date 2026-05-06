@@ -1295,7 +1295,7 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 		"cloudflare.com", "cloudflare.net",
 		"akamai.com", "akamaiedge.net",
 		"fastly.com", "fastly.net",
-		"speedtest.net", "ookla.com",
+		"ookla.com", "fuq.com",
 		"github.com", "gitlab.com",
 		"wikipedia.org", "wikimedia.org",
 		"whatsapp.com", "telegram.org", "t.me",
@@ -1988,7 +1988,7 @@ func subdomainEnum(domain string, progressChan chan<- string) ([]string, error) 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	sources := []string{"crt.sh", "HackerTarget", "RapidDNS", "Wayback", "CertSpotter", "AnubisDB"}
+	sources := []string{"crt.sh", "HackerTarget", "RapidDNS", "Wayback", "CertSpotter", "AnubisDB", "AlienVault", "Urlscan.io", "ThreatCrowd", "BufferOverflow", "Riddler"}
 	completed := 0
 	var progressMu sync.Mutex
 
@@ -1997,7 +1997,9 @@ func subdomainEnum(domain string, progressChan chan<- string) ([]string, error) 
 		completed++
 		current := completed
 		progressMu.Unlock()
-		progressChan <- fmt.Sprintf("📡 %s: %s (found: %d) [%d/%d]", source, status, count, current, len(sources))
+		if progressChan != nil {
+			progressChan <- fmt.Sprintf("📡 %s: %s (found: %d) [%d/%d]", source, status, count, current, len(sources))
+		}
 	}
 
 	fetchWithRetry := func(url string) []byte {
@@ -2175,6 +2177,122 @@ func subdomainEnum(domain string, progressChan chan<- string) ([]string, error) 
 		updateProgress("AnubisDB", "✅", count)
 	})
 
+	// 7. AlienVault
+	runScanner("AlienVault", func() {
+		body := fetchWithRetry(fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/passive_dns", domain))
+		count := 0
+		if body != nil {
+			var data struct {
+				PassiveDNS []struct {
+					Hostname string `json:"hostname"`
+				} `json:"passive_dns"`
+			}
+			if json.Unmarshal(body, &data) == nil {
+				mu.Lock()
+				for _, d := range data.PassiveDNS {
+					if strings.HasSuffix(d.Hostname, domain) {
+						if !foundSubs[d.Hostname] {
+							foundSubs[d.Hostname] = true
+							count++
+						}
+					}
+				}
+				mu.Unlock()
+			}
+		}
+		updateProgress("AlienVault", "✅", count)
+	})
+
+	// 8. Urlscan.io
+	runScanner("Urlscan.io", func() {
+		body := fetchWithRetry(fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s", domain))
+		count := 0
+		if body != nil {
+			re := regexp.MustCompile(`([a-z0-9][a-z0-9\-]*\.)+` + regexp.QuoteMeta(domain))
+			matches := re.FindAllString(string(body), -1)
+			mu.Lock()
+			for _, m := range matches {
+				m = strings.ToLower(strings.Trim(m, ".\" \t\n\r"))
+				if strings.HasSuffix(m, domain) && !strings.Contains(m, "*") {
+					if !foundSubs[m] {
+						foundSubs[m] = true
+						count++
+					}
+				}
+			}
+			mu.Unlock()
+		}
+		updateProgress("Urlscan.io", "✅", count)
+	})
+
+	// 9. ThreatCrowd
+	runScanner("ThreatCrowd", func() {
+		body := fetchWithRetry(fmt.Sprintf("https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=%s", domain))
+		count := 0
+		if body != nil {
+			var data struct {
+				Subdomains []string `json:"subdomains"`
+			}
+			if json.Unmarshal(body, &data) == nil {
+				mu.Lock()
+				for _, s := range data.Subdomains {
+					if strings.HasSuffix(s, domain) {
+						if !foundSubs[s] {
+							foundSubs[s] = true
+							count++
+						}
+					}
+				}
+				mu.Unlock()
+			}
+		}
+		updateProgress("ThreatCrowd", "✅", count)
+	})
+
+	// 10. BufferOverflow
+	runScanner("BufferOverflow", func() {
+		body := fetchWithRetry(fmt.Sprintf("https://tls.bufferover.run/dns?q=.%s", domain))
+		count := 0
+		if body != nil {
+			re := regexp.MustCompile(`([a-z0-9][a-z0-9\-]*\.)+` + regexp.QuoteMeta(domain))
+			matches := re.FindAllString(string(body), -1)
+			mu.Lock()
+			for _, m := range matches {
+				m = strings.ToLower(strings.Trim(m, ".\" \t\n\r"))
+				if strings.HasSuffix(m, domain) && !strings.Contains(m, "*") {
+					if !foundSubs[m] {
+						foundSubs[m] = true
+						count++
+					}
+				}
+			}
+			mu.Unlock()
+		}
+		updateProgress("BufferOverflow", "✅", count)
+	})
+
+	// 11. Riddler
+	runScanner("Riddler", func() {
+		body := fetchWithRetry(fmt.Sprintf("https://riddler.io/search/exportcsv?q=pdata.domain:%s", domain))
+		count := 0
+		if body != nil {
+			re := regexp.MustCompile(`([a-z0-9][a-z0-9\-]*\.)+` + regexp.QuoteMeta(domain))
+			matches := re.FindAllString(string(body), -1)
+			mu.Lock()
+			for _, m := range matches {
+				m = strings.ToLower(strings.Trim(m, ".\" \t\n\r"))
+				if strings.HasSuffix(m, domain) && !strings.Contains(m, "*") {
+					if !foundSubs[m] {
+						foundSubs[m] = true
+						count++
+					}
+				}
+			}
+			mu.Unlock()
+		}
+		updateProgress("Riddler", "✅", count)
+	})
+
 	wg.Wait()
 	close(progressChan)
 
@@ -2193,7 +2311,7 @@ func subdomainEnumWithProgress(chatID int64, msgID int, domain string) []string 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	sources := []string{"crt.sh", "HackerTarget", "RapidDNS", "Wayback", "CertSpotter", "AnubisDB"}
+	sources := []string{"crt.sh", "HackerTarget", "RapidDNS", "Wayback", "CertSpotter", "AnubisDB", "AlienVault", "Urlscan.io", "ThreatCrowd", "BufferOverflow", "Riddler"}
 	completed := 0
 	var progressMu sync.Mutex
 
@@ -2817,12 +2935,12 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 				}
 
 				percent := float64(completed) / float64(totalJobs) * 100
-				barLen := 15
+				barLen := 10
 				filled := int(percent / 100 * float64(barLen))
 				if filled > barLen {
 					filled = barLen
 				}
-				bar := strings.Repeat("▰", filled) + strings.Repeat("▱", barLen-filled)
+				bar := strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
 
 				mu.Lock()
 				found := len(sniSpoofableHosts)
@@ -2835,7 +2953,7 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 					"🔄 *CIDR Scan In Progress*\n"+
 						"━━━━━━━━━━━━━━━━━━━━\n\n"+
 						"🎯 `%s`\n"+
-						"📊 `%s` %.0f%%\n"+
+						"📊 %s %.0f%%\n"+
 						"🧪 %d/%d jobs done\n\n"+
 						"⚡ %.1f jobs/sec\n"+
 						"💎 %d targets found",
@@ -2973,20 +3091,25 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 
 	var summary strings.Builder
 	summary.WriteString("```\n")
-	summary.WriteString("╭──────────────────────────╮\n")
-	summary.WriteString("│  🛡️ PARAGON CIDR AUDIT DONE    │\n")
-	summary.WriteString("╰──────────────────────────╯\n")
-	summary.WriteString(fmt.Sprintf("Target : %s\n", cidr))
-	summary.WriteString(fmt.Sprintf("Range  : %d IPs | %d Jobs\n", totalIPs, totalJobs))
-	summary.WriteString(fmt.Sprintf("Time   : %v\n", elapsed))
-	summary.WriteString(fmt.Sprintf("Speed  : %.1f/s\n", speed))
-	summary.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	summary.WriteString("╭──────────────────────────────────╮\n")
+	summary.WriteString("│  🛡️ " + toBoldUnicode("PARAGON CIDR AUDIT") + "      │\n")
+	summary.WriteString("╰──────────────────────────────────╯\n\n")
+
+	summary.WriteString(toBoldUnicode("Target") + " : " + cidr + "\n")
+	summary.WriteString(toBoldUnicode("Range") + "  : " + strconv.Itoa(totalIPs) + " IPs | " + strconv.Itoa(int(totalJobs)) + " Jobs\n")
+	summary.WriteString(toBoldUnicode("Time") + "   : " + elapsed.String() + "\n")
+	summary.WriteString(toBoldUnicode("Speed") + "  : " + fmt.Sprintf("%.1f/s", speed) + "\n")
+
+	// Summary stats
+	summary.WriteString(toBoldUnicode("Stats") + "  : 🔥 Strong: " + strconv.Itoa(sCount) + " | ⚠️ Medi: " + strconv.Itoa(mCount) + " | 💀 Weak: " + strconv.Itoa(wCount) + "\n")
+	summary.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 	if len(sniSpoofableHosts) > 0 {
-		summary.WriteString("\n💎 TOP BUGHOSTS FOUND:\n\n")
+		summary.WriteString("\n💎 " + toBoldUnicode("TOP BUGHOSTS FOUND") + ":\n\n")
 		limit := 15
 		for i, h := range sniSpoofableHosts {
 			if i >= limit {
+				summary.WriteString(fmt.Sprintf("\n   ... and %d more\n", len(sniSpoofableHosts)-limit))
 				break
 			}
 
@@ -3010,20 +3133,36 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 				labelTag = "CDN-ONLY"
 			}
 
+			score, _ := strconv.Atoi(h["score"])
+			scoreIcon := "🟢"
+			if score < 80 {
+				scoreIcon = "🟡"
+			}
+			if score < 50 {
+				scoreIcon = "🔴"
+			}
+
 			summary.WriteString(fmt.Sprintf("%s %-15s [%s]\n", icon, h["ip"], labelTag))
-			summary.WriteString(fmt.Sprintf("   PORT: %-5s STATUS: %s SCORE: %s\n", h["port"], h["status"], h["score"]))
-			summary.WriteString(fmt.Sprintf("   CDN: %s\n", h["server"]))
+			summary.WriteString(fmt.Sprintf("   %s: %-5s | %s: %s | %s: %s %s\n",
+				toBoldUnicode("PORT"), h["port"],
+				toBoldUnicode("HTTP"), h["status"],
+				toBoldUnicode("SC"), scoreIcon, h["score"],
+			))
+			summary.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("CDN"), h["server"]))
 			if h["cn"] != "" {
-				summary.WriteString(fmt.Sprintf("   CN: %s\n", h["cn"]))
+				summary.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("CN"), h["cn"]))
 			}
 			if h["sni"] != "" && h["sni"] != h["cn"] {
-				summary.WriteString(fmt.Sprintf("   SNI: %s\n", h["sni"]))
+				summary.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("SNI"), h["sni"]))
 			}
-			summary.WriteString("   ────────────────────────\n")
+			summary.WriteString("   ──────────────────────────────\n")
 		}
 	} else {
-		summary.WriteString("\n⚠️ No vulnerable hosts found.\n")
+		summary.WriteString("\n⚠️ " + toBoldUnicode("No vulnerable hosts found.") + "\n")
 	}
+
+	summary.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	summary.WriteString("💡 " + toBoldUnicode("Full CSV report sent as file") + "\n")
 	summary.WriteString("```")
 
 	updateStatus(chatID, statusMsgID, summary.String())
@@ -3034,8 +3173,9 @@ func executeCIDRScan(chatID int64, statusMsgID int, cidr string, ipnet *net.IPNe
 			Name:  fmt.Sprintf("Report_%s.csv", strings.ReplaceAll(cidr, "/", "_")),
 			Bytes: fileBytes,
 		})
-		doc.Caption = fmt.Sprintf("📄 *Full Report:* `%s`\n🔥 *Strong Targets:* %d\n⚡ *Speed:* %.1f/s", cidr, sCount, speed)
-		doc.ParseMode = "Markdown"
+		doc.Caption = fmt.Sprintf("<b>Full Report:</b> %s\n🔥 Strong Targets: %d | ⚠️ Medi: %d | 💀 Weak: %d\n⚡ Speed: %.1f/s",
+			cidr, sCount, mCount, wCount, speed)
+		doc.ParseMode = "HTML"
 		bot.Send(doc)
 	}
 
@@ -3262,16 +3402,17 @@ func formatSubdomainResultMarkdown(domain string, subdomains []string) string {
 
 	// Header
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  🔎 SUBDOMAIN RESULTS   │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  🔎 " + toBoldUnicode("PARAGON SUBDOMAIN ENUMERATION") + " │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
-	sb.WriteString(fmt.Sprintf("Domain   : %s\n", domain))
-	sb.WriteString(fmt.Sprintf("Found    : %d subdomains\n", len(subdomains)))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString(toBoldUnicode("Domain") + "   : " + domain + "\n")
+	sb.WriteString(toBoldUnicode("Found") + "    : " + strconv.Itoa(len(subdomains)) + " subdomains\n")
+	sb.WriteString(toBoldUnicode("Sources") + "  : 11 engines queried\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	if len(subdomains) == 0 {
-		sb.WriteString("❌ No subdomains found\n")
+		sb.WriteString("❌ " + toBoldUnicode("No subdomains found") + "\n")
 	} else {
 		// Show max 10 in chat, rest in file
 		limit := 10
@@ -3279,18 +3420,36 @@ func formatSubdomainResultMarkdown(domain string, subdomains []string) string {
 			limit = len(subdomains)
 		}
 
-		sb.WriteString("📋 Top Results:\n\n")
+		sb.WriteString("📋 " + toBoldUnicode("Top Results") + ":\n\n")
 		for i := 0; i < limit; i++ {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, subdomains[i]))
+			icon := "🔹"
+			if strings.Contains(subdomains[i], "www.") {
+				icon = "🌐"
+			} else if strings.Contains(subdomains[i], "mail.") {
+				icon = "📧"
+			} else if strings.Contains(subdomains[i], "api.") {
+				icon = "⚡"
+			} else if strings.Contains(subdomains[i], "cdn.") {
+				icon = "☁️"
+			} else if strings.Contains(subdomains[i], "admin.") || strings.Contains(subdomains[i], "dev.") {
+				icon = "🔐"
+			} else if strings.Contains(subdomains[i], "ftp.") || strings.Contains(subdomains[i], "sftp.") {
+				icon = "📁"
+			} else if strings.Contains(subdomains[i], "blog.") || strings.Contains(subdomains[i], "news.") {
+				icon = "📝"
+			}
+			sb.WriteString(fmt.Sprintf("  %s %d. %s\n", icon, i+1, subdomains[i]))
 		}
 
 		if len(subdomains) > limit {
 			sb.WriteString(fmt.Sprintf("\n  ... and %d more\n", len(subdomains)-limit))
-			sb.WriteString("  📄 Full list sent as file below\n")
+			sb.WriteString("  📄 " + toBoldUnicode("Full list sent as file below") + "\n")
 		}
 	}
 
-	sb.WriteString("\n```")
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Use /scan <subdomain> to test") + "\n")
+	sb.WriteString("```")
 
 	return sb.String()
 }
@@ -3484,34 +3643,65 @@ func handleAbout(update tgbotapi.Update) {
 	bot.Send(msg)
 }
 
+func toBoldUnicode(s string) string {
+	boldMap := map[rune]rune{
+		'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘',
+		'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝',
+		'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢',
+		'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧',
+		'U': '𝗨', 'V': '𝗩', 'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭',
+		'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲',
+		'f': '𝗳', 'g': '𝗴', 'h': '𝗵', 'i': '𝗶', 'j': '𝗷',
+		'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻', 'o': '𝗼',
+		'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁',
+		'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
+		'0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰',
+		'5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵',
+		' ': ' ',
+	}
+
+	var result strings.Builder
+	for _, c := range s {
+		if bold, ok := boldMap[c]; ok {
+			result.WriteRune(bold)
+		} else {
+			result.WriteRune(c)
+		}
+	}
+	return result.String()
+}
+
 func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string, useCase string, allPorts map[int]string) string {
 	var sb strings.Builder
 
+	// Header
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│  🎯 PARAGON SINGLE SCAN COMPLETE    │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  🎯 " + toBoldUnicode("PARAGON SINGLE SCAN") + "    │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
-	sb.WriteString(fmt.Sprintf("Target   : %s\n", host))
-	sb.WriteString(fmt.Sprintf("IP       : %s\n", ip))
+	// Target info with bold labels
+	sb.WriteString(toBoldUnicode("Target") + "   : " + host + "\n")
+	sb.WriteString(toBoldUnicode("IP") + "       : " + ip + "\n")
 
-	// Show port with all tested ports
+	// Port with all tested ports
 	if len(allPorts) > 0 {
 		var portParts []string
 		for p, status := range allPorts {
 			if p == port {
-				portParts = append(portParts, fmt.Sprintf("*%d ✓", p))
-			} else if strings.Contains(status, "STRONG") || strings.Contains(status, "MEDI") {
-				portParts = append(portParts, fmt.Sprintf("%d ✓", p))
+				portParts = append(portParts, "*"+strconv.Itoa(p)+" ✓")
+			} else if status == "✓" {
+				portParts = append(portParts, strconv.Itoa(p)+" ✓")
 			} else {
-				portParts = append(portParts, fmt.Sprintf("%d ✗", p))
+				portParts = append(portParts, strconv.Itoa(p)+" ✗")
 			}
 		}
-		sb.WriteString(fmt.Sprintf("Port     : %d (%s)\n", port, strings.Join(portParts, ", ")))
+		sb.WriteString(toBoldUnicode("Port") + "     : " + strconv.Itoa(port) + " (" + strings.Join(portParts, ", ") + ")\n")
 	} else {
-		sb.WriteString(fmt.Sprintf("Port     : %d\n", port))
+		sb.WriteString(toBoldUnicode("Port") + "     : " + strconv.Itoa(port) + "\n")
 	}
 
+	// Server
 	serverDisplay := info.Server
 	if serverDisplay == "" || serverDisplay == "Unknown" {
 		serverDisplay = detectCDNByIP(ip)
@@ -3519,14 +3709,33 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 			serverDisplay = "Unknown"
 		}
 	}
-	sb.WriteString(fmt.Sprintf("Server   : %s\n", serverDisplay))
+	sb.WriteString(toBoldUnicode("Server") + "   : " + serverDisplay + "\n")
 
+	// HTTP Status
 	statusDisplay := info.HTTPStatus
 	if statusDisplay == "" {
 		statusDisplay = "000"
 	}
-	sb.WriteString(fmt.Sprintf("HTTP     : %s\n\n", statusDisplay))
 
+	// Color indicator for HTTP status
+	httpIcon := ""
+	switch {
+	case statusDisplay == "200":
+		httpIcon = "🟢"
+	case statusDisplay == "301" || statusDisplay == "302":
+		httpIcon = "🔵"
+	case statusDisplay == "403":
+		httpIcon = "🟡"
+	case statusDisplay == "404":
+		httpIcon = "🔴"
+	case statusDisplay == "000":
+		httpIcon = "💀"
+	default:
+		httpIcon = "⚪"
+	}
+	sb.WriteString(toBoldUnicode("HTTP") + "     : " + httpIcon + " " + statusDisplay + "\n\n")
+
+	// Type with icon
 	var statusIcon, statusLabel string
 	switch detectType {
 	case "H3_QUIC":
@@ -3575,13 +3784,15 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("Type     : %s %s\n", statusIcon, statusLabel))
-	sb.WriteString(fmt.Sprintf("Category : %s\n", detectType))
+	sb.WriteString(toBoldUnicode("Type") + "     : " + statusIcon + " " + toBoldUnicode(statusLabel) + "\n")
+	sb.WriteString(toBoldUnicode("Category") + " : " + detectType + "\n")
 
+	// SNI
 	if info.CommonName != "" && info.CommonName != host {
-		sb.WriteString(fmt.Sprintf("SNI      : %s\n", info.CommonName))
+		sb.WriteString(toBoldUnicode("SNI") + "      : " + info.CommonName + "\n")
 	}
 
+	// Score with progress bar
 	scoreBar := ""
 	barLen := 8
 	filled := qualityScore * barLen / 100
@@ -3589,41 +3800,66 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		filled = barLen
 	}
 	scoreBar = "[" + strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled) + "]"
-	sb.WriteString(fmt.Sprintf("Score    : %d/100 %s\n", qualityScore, scoreBar))
 
+	// Score color indicator
+	scoreIcon := ""
+	switch {
+	case qualityScore >= 80:
+		scoreIcon = "🟢"
+	case qualityScore >= 50:
+		scoreIcon = "🟡"
+	case qualityScore >= 30:
+		scoreIcon = "🟠"
+	default:
+		scoreIcon = "🔴"
+	}
+	sb.WriteString(toBoldUnicode("Score") + "    : " + scoreIcon + " " + strconv.Itoa(qualityScore) + "/100 " + scoreBar + "\n")
+
+	// Latency
 	if info.LatencyMs > 0 {
-		sb.WriteString(fmt.Sprintf("Latency  : %dms\n", info.LatencyMs))
+		latencyIcon := "⚡"
+		if info.LatencyMs > 500 {
+			latencyIcon = "🐢"
+		} else if info.LatencyMs < 100 {
+			latencyIcon = "🚀"
+		}
+		sb.WriteString(toBoldUnicode("Latency") + "  : " + latencyIcon + " " + strconv.Itoa(info.LatencyMs) + "ms\n")
 	}
 
+	// ALPN
 	if info.ALPN != "" {
-		sb.WriteString(fmt.Sprintf("ALPN     : %s\n", info.ALPN))
+		sb.WriteString(toBoldUnicode("ALPN") + "     : " + info.ALPN + "\n")
 	}
 
+	// Cipher
 	if info.Cipher != "" && info.Cipher != "0x0000" {
-		sb.WriteString(fmt.Sprintf("Cipher   : %s\n", info.Cipher))
+		sb.WriteString(toBoldUnicode("Cipher") + "   : " + info.Cipher + "\n")
 	}
 
+	// Content Size
 	if info.ContentLength > 0 {
-		contentDisplay := fmt.Sprintf("%d bytes", info.ContentLength)
+		contentDisplay := strconv.Itoa(info.ContentLength) + " bytes"
 		if info.ContentLength > 1024 {
 			contentDisplay = fmt.Sprintf("%.1f KB", float64(info.ContentLength)/1024.0)
 		}
-		sb.WriteString(fmt.Sprintf("Size     : %s\n", contentDisplay))
+		sb.WriteString(toBoldUnicode("Size") + "     : " + contentDisplay + "\n")
 	}
 
+	// Deep Verify Result
 	if deepVerifyResult != "" {
-		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(deepVerifyResult)
 	}
 
+	// UseCase / Recommendation
 	if useCase != "" {
-		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(useCase)
 	}
 
-	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	sb.WriteString("💡 Enjoying PARAGON? Send /feedback\n")
-
+	// Footer
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Enjoying PARAGON?") + " Send /feedback\n")
 	sb.WriteString("\n```")
 
 	return sb.String()
@@ -3742,7 +3978,7 @@ func executeSingleScan(chatID int64, target string) {
 		case <-time.After(300 * time.Millisecond):
 		}
 
-		updateStatus(chatID, msgID, "📡 *Step 2:* Probing ports (parallel)...")
+		updateStatus(chatID, msgID, "📡 *Step 2:* Probing ports...")
 
 		var portsToTest []int
 		if specifiedPort != 0 {
@@ -3761,6 +3997,7 @@ func executeSingleScan(chatID int64, target string) {
 
 		results := make(chan portResult, len(portsToTest))
 		var wg sync.WaitGroup
+		allResults := make(map[int]string)
 
 		for _, port := range portsToTest {
 			wg.Add(1)
@@ -3768,7 +4005,6 @@ func executeSingleScan(chatID int64, target string) {
 				defer wg.Done()
 				_, pInfo, pLabel, _ := classifyWithProbes(host, ip, p)
 
-				// Also test plain HTTP for non-443 ports
 				if p != 443 && (pInfo.HTTPStatus == "" || pInfo.HTTPStatus == "000") {
 					httpStatus, httpInfo := doHTTP(host, ip, p)
 					if httpStatus == "OK" && httpInfo.ContentLength > 0 {
@@ -3790,10 +4026,9 @@ func executeSingleScan(chatID int64, target string) {
 		var bestPriority string
 		var bestScore int
 		finalPort := 0
-		allResults := make(map[int]string)
 
 		for r := range results {
-			if r.priority == "STRONG" || r.priority == "MEDI" {
+			if r.priority == "STRONG" || r.priority == "MEDI" || r.label == "HTTP_OK" {
 				allResults[r.port] = "✓"
 			} else {
 				allResults[r.port] = "✗"
@@ -4002,7 +4237,7 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 			clearSessionState(chatID)
 		}
 	}()
-	// 2. SCAN COUNTER
+
 	umMutex.Lock()
 	if u, exists := userData.Users[chatID]; exists {
 		u.Scans++
@@ -4012,7 +4247,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 
 	startTime := time.Now()
 
-	// 1. DEDUP & CLEANING
 	seenHosts := make(map[string]bool)
 	uniqueHosts := make([]string, 0)
 	for _, h := range hosts {
@@ -4032,7 +4266,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 	var strongCandidates []scanRecord
 	var completedJobs int64
 
-	// ==================== STAGE 1: RAW PROBING ====================
 	updateStatus(chatID, statusMsgID, "🔄 *Stage 1/2:* Scanning for live holes...")
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -4083,14 +4316,12 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 					}
 				}()
 
-				// 1. Resolve IP
 				ip, err := resolveIPv4(targetHost)
 				if err != nil {
 					atomic.AddInt64(&completedJobs, 1)
 					return
 				}
 
-				// 2. Run Engine
 				_, info, label, tlsRaw := classifyWithProbes(targetHost, ip, targetPort)
 				info.IP = ip
 
@@ -4099,10 +4330,8 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 					return
 				}
 
-				// 3. Preliminary Scoring
 				finalPrio, qualityScore := calculateScore(label, info)
 
-				// Determine bugType
 				labelUpper := strings.ToUpper(label)
 				bugType := "CDN_HOST"
 				switch {
@@ -4156,7 +4385,6 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 
 	stage1Elapsed := time.Since(startTime).Round(time.Second)
 
-	// ==================== STAGE 2: STRICT DEEP VERIFY ====================
 	var deepVerifiedCount, deepFailedCount int64
 	verifiedTargets := make([]map[string]string, 0)
 	failedTargets := make([]map[string]string, 0)
@@ -4280,6 +4508,7 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 						newLabel = "CDN_FRONT"
 					}
 
+					httpStatus := cand.info.HTTPStatus
 					newStatus := "VERIFIED"
 					newServer := cand.info.Server
 					newCN := cand.info.CommonName
@@ -4308,6 +4537,7 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 						"sni":           newCN,
 						"tag":           newBugType,
 						"status":        newStatus,
+						"http":          httpStatus,
 						"score":         strconv.Itoa(finalScore),
 						"server":        newServer,
 						"cn":            newCN,
@@ -4341,6 +4571,7 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 						"port":          strconv.Itoa(cand.port),
 						"tag":           cand.bugType,
 						"status":        "FAILED",
+						"http":          cand.info.HTTPStatus,
 						"score":         strconv.Itoa(newScore),
 						"server":        cand.info.Server,
 						"cn":            cand.info.CommonName,
@@ -4394,23 +4625,27 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭──────────────────────────╮\n")
-	sb.WriteString("│  💎 PARAGON MASS RESULT  │\n")
-	sb.WriteString("╰──────────────────────────╯\n")
-	sb.WriteString(fmt.Sprintf("Hosts : %d | Jobs: %d\n", totalHosts, totalJobs))
-	sb.WriteString(fmt.Sprintf("Time  : %v | Speed: %.1f/s\n", elapsed, speed))
-	sb.WriteString(fmt.Sprintf("🔬 OK : %d | ❌ Fake: %d\n",
-		atomic.LoadInt64(&deepVerifiedCount),
-		atomic.LoadInt64(&deepFailedCount)))
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  💎 " + toBoldUnicode("PARAGON MASS SCAN RESULT") + "    │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
+
+	sb.WriteString(toBoldUnicode("Hosts") + "   : " + strconv.Itoa(totalHosts) + " | " + toBoldUnicode("Jobs") + ": " + strconv.Itoa(int(totalJobs)) + "\n")
+	sb.WriteString(toBoldUnicode("Time") + "    : " + elapsed.String() + " | " + toBoldUnicode("Speed") + ": " + fmt.Sprintf("%.1f/s", speed) + "\n")
+
+	verifiedCount := atomic.LoadInt64(&deepVerifiedCount)
+	failedCount := atomic.LoadInt64(&deepFailedCount)
+
+	sb.WriteString(toBoldUnicode("Verified") + ": ✅ " + strconv.FormatInt(verifiedCount, 10) + " | " + toBoldUnicode("Failed") + ": ❌ " + strconv.FormatInt(failedCount, 10) + "\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 	if len(verifiedTargets) > 0 {
-		sb.WriteString("\n✅ VERIFIED TARGETS:\n\n")
+		sb.WriteString("\n✅ " + toBoldUnicode("VERIFIED TARGETS") + ":\n\n")
 		limit := 10
 		for i, v := range verifiedTargets {
 			if i >= limit {
 				break
 			}
+
 			icon := "✅"
 			tag := v["tag"]
 			switch tag {
@@ -4430,31 +4665,57 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 				icon = "☁️"
 				tag = "CDN-FRONT"
 			}
-			sb.WriteString(fmt.Sprintf("%s %-18s [%s]\n", icon, v["host"], tag))
-			sb.WriteString(fmt.Sprintf("   PORT: %-5s | SC: %-3s | L: %-4sms\n", v["port"], v["score"], v["latency"]))
-			sb.WriteString(fmt.Sprintf("   CDN: %s\n", v["server"]))
-			sb.WriteString(fmt.Sprintf("   SNI: %s\n", v["cn"]))
-			sb.WriteString(fmt.Sprintf("   🔬: %s\n", v["deep_verified"]))
-			sb.WriteString("   ────────────────────────\n")
+
+			score, _ := strconv.Atoi(v["score"])
+			scoreIcon := "🟢"
+			if score < 80 {
+				scoreIcon = "🟡"
+			}
+			if score < 50 {
+				scoreIcon = "🔴"
+			}
+
+			lat, _ := strconv.Atoi(v["latency"])
+			latIcon := "⚡"
+			if lat > 500 {
+				latIcon = "🐢"
+			} else if lat < 100 {
+				latIcon = "🚀"
+			}
+
+			sb.WriteString(fmt.Sprintf("%s %s [%s]\n", icon, v["host"], tag))
+			sb.WriteString(fmt.Sprintf("   %s: %-5s | %s: %s | %s: %s %s | %s: %s %sms\n",
+				toBoldUnicode("PORT"), v["port"],
+				toBoldUnicode("HTTP"), v["http"],
+				toBoldUnicode("SC"), scoreIcon, v["score"],
+				toBoldUnicode("L"), latIcon, v["latency"],
+			))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("CDN"), v["server"]))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("SNI"), v["cn"]))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("DeepVerify"), v["deep_verified"]))
+			sb.WriteString("   ──────────────────────────────\n")
 		}
 	}
 
 	if len(failedTargets) > 0 {
-		sb.WriteString(fmt.Sprintf("\n❌ FAILED (%d):\n", len(failedTargets)))
+		sb.WriteString(fmt.Sprintf("\n❌ "+toBoldUnicode("FAILED")+" (%d):\n", len(failedTargets)))
 		limit := 3
 		for i, v := range failedTargets {
 			if i >= limit {
 				sb.WriteString(fmt.Sprintf("   ... and %d more\n", len(failedTargets)-limit))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("   • %-18s [%s] | %s\n",
-				v["host"], v["tag"], v["deep_verified"]))
+			sb.WriteString(fmt.Sprintf("   • %-18s [%s] | HTTP: %s | %s\n",
+				v["host"], v["tag"], v["http"], v["deep_verified"]))
 		}
 	}
 
 	if len(verifiedTargets) == 0 {
-		sb.WriteString("\n⚠️ No high-quality bug found.\n")
+		sb.WriteString("\n⚠️ " + toBoldUnicode("No high-quality bug found.") + "\n")
 	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Full CSV report sent as file") + "\n")
 	sb.WriteString("```")
 
 	updateStatus(chatID, statusMsgID, sb.String())
@@ -4465,12 +4726,12 @@ func executeMassScan(chatID int64, statusMsgID int, hosts []string, ports []int)
 			Name:  fmt.Sprintf("DeepVerify_%s.csv", time.Now().Format("150405")),
 			Bytes: fileBytes,
 		})
-		doc.Caption = fmt.Sprintf("📄 *Deep Verify Report*\n🔥 *Candidates:* %d\n✅ *Verified:* %d\n❌ *Failed:* %d\n⏱ *Time:* %v",
+		doc.Caption = fmt.Sprintf("<b>Deep Verify Report</b>\n🔥 Candidates: %d\n✅ Verified: %d\n❌ Failed: %d\n⏱ Time: %v",
 			len(strongCandidates),
 			atomic.LoadInt64(&deepVerifiedCount),
 			atomic.LoadInt64(&deepFailedCount),
 			elapsed)
-		doc.ParseMode = "Markdown"
+		doc.ParseMode = "HTML"
 		bot.Send(doc)
 	}
 
@@ -4708,14 +4969,14 @@ func handleCallbackQuery(update tgbotapi.Update) {
 	case "menu_sub":
 		setSessionState(chatID, "awaiting_subdomain_target")
 		msg := tgbotapi.NewMessage(chatID, "```\n"+
-			"╭─────────────────────────╮\n"+
-			"│  🔎 SUBDOMAIN FINDER    │\n"+
-			"╰─────────────────────────╯\n\n"+
-			"🎯 Send domain(s):\n\n"+
-			"📋 Single:\n"+
-			"google.com\n\n"+
-			"📋 Multiple (max 3):\n"+
-			"orange.com, google.com, facebook.com\n\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  🔎 "+toBoldUnicode("PARAGON SUBDOMAIN FINDER")+"               │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Send domain(s)")+":\n\n"+
+			"📋 "+toBoldUnicode("Single")+":\n"+
+			"  google.com\n\n"+
+			"📋 "+toBoldUnicode("Multiple")+" (max 3):\n"+
+			"  orange.com, google.com, facebook.com\n\n"+
 			"💡 Use comma (,) to separate\n"+
 			"```")
 		msg.ParseMode = "Markdown"
@@ -4726,14 +4987,14 @@ func handleCallbackQuery(update tgbotapi.Update) {
 	case "menu_sniff":
 		setSessionState(chatID, "awaiting_sniff_input")
 		msg := tgbotapi.NewMessage(chatID, "```\n"+
-			"╭─────────────────────────╮\n"+
-			"│   🔎 DOMAIN SNIFF       │\n"+
-			"╰─────────────────────────╯\n\n"+
-			"🎯 Format: prefix start end\n\n"+
-			"📋 Examples:\n"+
-			"104.16.132. 1 254  → Single subnet\n"+
-			"104.16. 132 135    → /22 (4 subnets)\n"+
-			"104.16. 0 255      → /16 (65K IPs!)\n\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  🔎 "+toBoldUnicode("PARAGON DOMAIN SNIFF")+"                    │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Format")+": prefix start end\n\n"+
+			"📋 "+toBoldUnicode("Examples")+":\n"+
+			"  104.16.132. 1 254  → Single subnet\n"+
+			"  104.16. 132 135    → /22 (4 subnets)\n"+
+			"  104.16. 0 255      → /16 (65K IPs!)\n\n"+
 			"💡 Just prefix only = auto 0-255\n"+
 			"```")
 		msg.ParseMode = "Markdown"
@@ -4747,14 +5008,17 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		bot.Send(tgbotapi.NewCallback(callback.ID, "📊 Ready for Mass Scan"))
 
 		msg := tgbotapi.NewMessage(chatID,
-			"📊 *MASS SCAN ENGINE*\n"+
-				"━━━━━━━━━━━━━━━━━━━━\n\n"+
-				"Please upload a `.txt` file containing your targets.\n\n"+
-				"*File Requirements:*\n"+
-				"• Maximum: 500 lines per file\n"+
-				"• Format: `example.com` or `IP:Port` per line\n\n"+
-				"━━━━━━━━━━━━━━━━━━━━\n"+
-				"_Engine status: Ready to receive file..._")
+			"```\n"+
+				"╭──────────────────────────────────╮\n"+
+				"│  📊 "+toBoldUnicode("PARAGON MASS SCAN ENGINE")+"               │\n"+
+				"╰──────────────────────────────────╯\n\n"+
+				toBoldUnicode("Upload")+" a .txt file with targets.\n\n"+
+				"📋 "+toBoldUnicode("Requirements")+":\n"+
+				"  • Maximum: 500 lines\n"+
+				"  • Format: example.com or IP:Port\n\n"+
+				"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"+
+				toBoldUnicode("Engine status")+": Ready to receive...\n"+
+				"```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
@@ -4762,32 +5026,56 @@ func handleCallbackQuery(update tgbotapi.Update) {
 
 	case "menu_cidr":
 		setSessionState(chatID, "awaiting_cidr_input")
-		msg := tgbotapi.NewMessage(chatID, "*🌐 CIDR SCAN*\n━━━━━━━━━━━━━━━━━━━━\n\nSend CIDR: `57.144.120.0/24`")
-		msg.ParseMode = "MarkdownV2"
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  🌐 "+toBoldUnicode("CIDR RANGE SCAN")+"                │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Send CIDR")+":\n"+
+			"  57.144.120.0/24\n\n"+
+			"📋 "+toBoldUnicode("Examples")+":\n"+
+			"  192.168.1.0/24  → 254 IPs\n"+
+			"  10.0.0.0/16     → 65K IPs\n\n"+
+			"⚠️ Max: /24 (256 IPs)\n"+
+			"```")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 
 	case "menu_extract":
 		setSessionState(chatID, "awaiting_extract_text")
-		msg := tgbotapi.NewMessage(chatID, "*📝 EXTRACT DOMAINS*\n━━━━━━━━━━━━━━━━━━━━\n\nSend any text with domains")
-		msg.ParseMode = "MarkdownV2"
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  📝 "+toBoldUnicode("EXTRACT DOMAINS")+"                │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Send any text")+" with domains\n\n"+
+			"📋 "+toBoldUnicode("Examples")+":\n"+
+			"  • Paste config/code\n"+
+			"  • Paste HTML source\n"+
+			"  • Paste any text with URLs\n\n"+
+			"💡 Auto-detects all domains\n"+
+			"```")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
 
 	case "menu_payload":
 		setSessionState(chatID, "awaiting_payload_host")
-		msg := tgbotapi.NewMessage(chatID, "*💉 Payload Injection Tester*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-			"📝 *Input Format:*\n"+
-			"`host` — Basic test\n"+
-			"`host vps` — With VPS\n"+
-			"`host vps sni` — Full custom\n\n"+
-			"📋 *Examples:*\n"+
-			"`www.speedtest.net`\n"+
-			"`www.speedtest.net myvps.com`\n"+
-			"`www.speedtest.net myvps.com facebook.com`\n"+
-			"`applynow.hdfc.bank.in:80`\n\n"+
-			"━━━━━━━━━━━━━━━━━━━━\n"+
-			"_Send host to begin..._")
+		msg := tgbotapi.NewMessage(chatID, "```\n"+
+			"╭──────────────────────────────────╮\n"+
+			"│  💉 "+toBoldUnicode("PARAGGON PAYLOAD INJECTION TESTER")+"       │\n"+
+			"╰──────────────────────────────────╯\n\n"+
+			toBoldUnicode("Input Format")+":\n"+
+			"  host — Basic test\n"+
+			"  host vps — With VPS\n"+
+			"  host vps sni — Full custom\n\n"+
+			"📋 "+toBoldUnicode("Examples")+":\n"+
+			"  www.speedtest.net\n"+
+			"  www.speedtest.net myvps.com\n"+
+			"  www.speedtest.net myvps.com fb.com\n"+
+			"  applynow.hdfc.bank.in:80\n\n"+
+			"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"+
+			toBoldUnicode("Send host to begin")+"...\n"+
+			"```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
 		bot.Send(msg)
@@ -5381,19 +5669,20 @@ func handleUserListCommand(update tgbotapi.Update) {
 			}
 			displayName = html.EscapeString(displayName)
 
-			usernameStr := ""
-			if u.Info.Username != "" {
-				usernameStr = fmt.Sprintf(" @%s", html.EscapeString(u.Info.Username))
-			} else {
-				usernameStr = fmt.Sprintf(" · <a href=\"tg://user?id=%d\"><code>ID:%d</code></a>", u.ID, u.ID)
-			}
-
 			scans := u.Info.Scans
 
-			sb.WriteString(fmt.Sprintf(
-				"%s <a href=\"tg://user?id=%d\">%s</a>%s — <code>%d scans</code>\n",
-				icon, u.ID, displayName, usernameStr, scans,
-			))
+			if u.Info.Username != "" {
+				usernameStr := fmt.Sprintf(" @%s", html.EscapeString(u.Info.Username))
+				sb.WriteString(fmt.Sprintf(
+					"%s <a href=\"tg://openmessage?user_id=%d\">%s</a>%s — <code>%d scans</code>\n",
+					icon, u.ID, displayName, usernameStr, scans,
+				))
+			} else {
+				sb.WriteString(fmt.Sprintf(
+					"%s <a href=\"tg://openmessage?user_id=%d\">%s</a> · <a href=\"tg://openmessage?user_id=%d\"><code>ID:%d</code></a> — <code>%d scans</code>\n",
+					icon, u.ID, displayName, u.ID, u.ID, scans,
+				))
+			}
 		}
 
 		if len(users) > 50 {

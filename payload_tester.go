@@ -246,25 +246,14 @@ func (pt *ProgressTracker) GetStats() (status200, status101 int64, bestScore int
 // =============================================
 
 func generateProgressBar(completed, total int64) string {
-	const barWidth = 20
+	const barWidth = 10
 	if total == 0 {
-		return "[░░░░░░░░░░░░░░░░░░░░] 0%"
+		return strings.Repeat("⬜", barWidth) + " 0%"
 	}
 	progress := int(float64(completed) / float64(total) * barWidth)
 	percentage := int(float64(completed) / float64(total) * 100)
-	var bar strings.Builder
-	bar.WriteString("[")
-	for i := 0; i < barWidth; i++ {
-		if i < progress {
-			bar.WriteString("█")
-		} else if i == progress {
-			bar.WriteString("▓")
-		} else {
-			bar.WriteString("░")
-		}
-	}
-	bar.WriteString(fmt.Sprintf("] %d%%", percentage))
-	return bar.String()
+	bar := strings.Repeat("🟩", progress) + strings.Repeat("⬜", barWidth-progress)
+	return fmt.Sprintf("%s %d%%", bar, percentage)
 }
 
 func generateStatusEmoji(completed, total int64) string {
@@ -787,8 +776,8 @@ func executePayloadTest(chatID int64, target string) {
 				bar := generateProgressBar(completed, total)
 				emoji := generateStatusEmoji(completed, total)
 				progressText := fmt.Sprintf(
-					"💉 *Testing:* `%s`\nIP: `%s` | Ports: %v\n━━━━━━━━━━━━━━━━━━━━\n"+
-						"%s %s\n🧪 Tested: %d/%d\n✅ Alive: %d | ❌ Dead: %d\n🟢 200 OK: %d | 🔥 WS: %d\n",
+					"💉 *Testing:* `%s`\n"+toBoldUnicode("IP")+": `%s` | "+toBoldUnicode("Ports")+": %v\n━━━━━━━━━━━━━━━━━━━━\n"+
+						"%s %s\n🧪 "+toBoldUnicode("Tested")+": %d/%d\n✅ "+toBoldUnicode("Alive")+": %d | ❌ "+toBoldUnicode("Dead")+": %d\n🟢 200 OK: %d | 🔥 WS: %d\n",
 					host, ip, portsToTest, emoji, bar, completed, total, working, dead, status200, status101)
 				if bestScore > 0 {
 					progressText += fmt.Sprintf("⭐ Best: %s (%d/100, %dms)\n", bestMethod, bestScore, bestLatency)
@@ -965,41 +954,49 @@ func executePayloadTest(chatID int64, target string) {
 
 	var sb strings.Builder
 	sb.WriteString("```\n")
-	sb.WriteString("╭─────────────────────────╮\n")
-	sb.WriteString("│   💉 PAYLOAD TESTER     │\n")
-	sb.WriteString("│   ⚡ Advanced Engine    │\n")
-	sb.WriteString("╰─────────────────────────╯\n\n")
-	sb.WriteString(fmt.Sprintf("Host : %s\n", host))
-	sb.WriteString(fmt.Sprintf("IP   : %s\n", ip))
+	sb.WriteString("╭──────────────────────────────────╮\n")
+	sb.WriteString("│  💉 " + toBoldUnicode("PARAGON PAYLOAD TESTER") + "          │\n")
+	sb.WriteString("│  ⚡ " + toBoldUnicode("Advanced Engine") + "                │\n")
+	sb.WriteString("╰──────────────────────────────────╯\n\n")
+
+	sb.WriteString(toBoldUnicode("Host") + "   : " + host + "\n")
+	sb.WriteString(toBoldUnicode("IP") + "     : " + ip + "\n")
 	if vps != "" {
-		sb.WriteString(fmt.Sprintf("VPS  : %s\n", vps))
+		sb.WriteString(toBoldUnicode("VPS") + "    : " + vps + "\n")
 	}
 	if sni != "" {
-		sb.WriteString(fmt.Sprintf("SNI  : %s\n", sni))
+		sb.WriteString(toBoldUnicode("SNI") + "    : " + sni + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("Ports: %v\n", portsToTest))
-	sb.WriteString(fmt.Sprintf("Engine: %d workers | DPI Bypass\n\n", config.MaxWorkers))
-	sb.WriteString(fmt.Sprintf("%s\n", validationStatus))
-	sb.WriteString(fmt.Sprintf("%s\n", validationMessage))
+	sb.WriteString(toBoldUnicode("Ports") + "  : " + fmt.Sprintf("%v", portsToTest) + "\n")
+	sb.WriteString(toBoldUnicode("Engine") + " : " + strconv.Itoa(config.MaxWorkers) + " workers | DPI Bypass\n\n")
+
+	sb.WriteString(validationStatus + "\n")
+	sb.WriteString(validationMessage + "\n")
 	for _, info := range extraInfo {
-		sb.WriteString(fmt.Sprintf("%s\n", info))
+		sb.WriteString(info + "\n")
 	}
 
 	// Smart summary with breakdown
 	if matchCount > 0 && rejectedCount > 0 {
-		sb.WriteString(fmt.Sprintf("\n✅ Match: %d (%s) | ❌ Rejected: %d (%s) | 💀 Dead: %d\n",
-			matchCount, matchBreakdown, rejectedCount, rejectedBreakdown, deadCount))
+		sb.WriteString(fmt.Sprintf("\n✅ %s: %d (%s) | ❌ %s: %d (%s) | 💀 %s: %d\n",
+			toBoldUnicode("Match"), matchCount, matchBreakdown,
+			toBoldUnicode("Rejected"), rejectedCount, rejectedBreakdown,
+			toBoldUnicode("Dead"), deadCount))
 	} else if matchCount > 0 {
-		sb.WriteString(fmt.Sprintf("\n✅ Match: %d (%s) | ❌ Rejected: %d | 💀 Dead: %d\n",
-			matchCount, matchBreakdown, rejectedCount, deadCount))
+		sb.WriteString(fmt.Sprintf("\n✅ %s: %d (%s) | ❌ %s: %d | 💀 %s: %d\n",
+			toBoldUnicode("Match"), matchCount, matchBreakdown,
+			toBoldUnicode("Rejected"), rejectedCount,
+			toBoldUnicode("Dead"), deadCount))
 	} else {
-		sb.WriteString(fmt.Sprintf("\n✅ Match: %d | ❌ Rejected: %d | 💀 Dead: %d\n",
-			matchCount, rejectedCount, deadCount))
+		sb.WriteString(fmt.Sprintf("\n✅ %s: %d | ❌ %s: %d | 💀 %s: %d\n",
+			toBoldUnicode("Match"), matchCount,
+			toBoldUnicode("Rejected"), rejectedCount,
+			toBoldUnicode("Dead"), deadCount))
 	}
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 	if len(qualityCount) > 0 {
-		sb.WriteString("\n📊 Response Breakdown:\n")
+		sb.WriteString("\n📊 " + toBoldUnicode("Response Breakdown") + ":\n")
 		type qc struct {
 			name  string
 			count int
@@ -1025,7 +1022,15 @@ func executePayloadTest(chatID int64, target string) {
 			return pi < pj
 		})
 		for _, qc := range qcs {
-			sb.WriteString(fmt.Sprintf("  %s: %d\n", qc.name, qc.count))
+			countBar := ""
+			if matchCount > 0 {
+				barFilled := qc.count * 10 / matchCount
+				if barFilled > 10 {
+					barFilled = 10
+				}
+				countBar = " " + strings.Repeat("🟩", barFilled) + strings.Repeat("⬜", 10-barFilled)
+			}
+			sb.WriteString(fmt.Sprintf("  %s: %d%s\n", qc.name, qc.count, countBar))
 		}
 	}
 
@@ -1034,7 +1039,7 @@ func executePayloadTest(chatID int64, target string) {
 		if len(workingResults) < limit {
 			limit = len(workingResults)
 		}
-		sb.WriteString(fmt.Sprintf("\n🔥 TOP %d MATCHED PAYLOADS:\n\n", limit))
+		sb.WriteString(fmt.Sprintf("\n🔥 "+toBoldUnicode("TOP")+" %d "+toBoldUnicode("MATCHED PAYLOADS")+":\n\n", limit))
 		for i := 0; i < limit; i++ {
 			r := workingResults[i]
 			sb.WriteString(fmt.Sprintf("%s [%s] Port:%d | %dms | %d/100\n",
@@ -1047,11 +1052,14 @@ func executePayloadTest(chatID int64, target string) {
 				sb.WriteString(fmt.Sprintf("   CDN: Cloudflare\n"))
 			}
 			sb.WriteString(fmt.Sprintf("   Payload: `%s`\n", r.Payload))
-			sb.WriteString("   ────────────────────────\n")
+			sb.WriteString("   ──────────────────────────────\n")
 		}
 	} else {
-		sb.WriteString("\n❌ No payload matched.\n")
+		sb.WriteString("\n❌ " + toBoldUnicode("No payload matched.") + "\n")
 	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Full report sent as file") + "\n")
 	sb.WriteString("```")
 
 	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
@@ -1082,54 +1090,63 @@ func executePayloadTest(chatID int64, target string) {
 
 func buildPayloadFile(host, ip, vps, sni string, ports []int, working, all []PayloadTestResult, config TesterConfig) string {
 	var sb strings.Builder
-	sb.WriteString("═══════════════════════════════════════\n")
-	sb.WriteString("    💉 PAYLOAD TEST REPORT\n")
-	sb.WriteString("    ⚡ Advanced Engine v2.0\n")
-	sb.WriteString("═══════════════════════════════════════\n\n")
-	sb.WriteString(fmt.Sprintf("Host   : %s\n", host))
-	sb.WriteString(fmt.Sprintf("IP     : %s\n", ip))
+	sb.WriteString("╔══════════════════════════════════╗\n")
+	sb.WriteString("║  💉 " + toBoldUnicode("PARAGON PAYLOAD REPORT") + "      ║\n")
+	sb.WriteString("║  ⚡ " + toBoldUnicode("Advanced Engine v2.0") + "         ║\n")
+	sb.WriteString("╚══════════════════════════════════╝\n\n")
+
+	sb.WriteString(toBoldUnicode("Host") + "   : " + host + "\n")
+	sb.WriteString(toBoldUnicode("IP") + "     : " + ip + "\n")
 	if vps != "" {
-		sb.WriteString(fmt.Sprintf("VPS    : %s\n", vps))
+		sb.WriteString(toBoldUnicode("VPS") + "    : " + vps + "\n")
 	}
 	if sni != "" {
-		sb.WriteString(fmt.Sprintf("SNI    : %s\n", sni))
+		sb.WriteString(toBoldUnicode("SNI") + "    : " + sni + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("Ports  : %v\n", ports))
-	sb.WriteString(fmt.Sprintf("Date   : %s\n", time.Now().Format("02 Jan 2006 15:04:05")))
-	sb.WriteString(fmt.Sprintf("Engine : %d workers | DPI Bypass\n", config.MaxWorkers))
-	sb.WriteString(fmt.Sprintf("Total  : %d working / %d tested\n\n", len(working), len(all)))
+	sb.WriteString(toBoldUnicode("Ports") + "  : " + fmt.Sprintf("%v", ports) + "\n")
+	sb.WriteString(toBoldUnicode("Date") + "   : " + time.Now().Format("02 Jan 2006 15:04:05") + "\n")
+	sb.WriteString(toBoldUnicode("Engine") + " : " + strconv.Itoa(config.MaxWorkers) + " workers | DPI Bypass\n")
+	sb.WriteString(toBoldUnicode("Total") + "  : " + strconv.Itoa(len(working)) + " working / " + strconv.Itoa(len(all)) + " tested\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
-	sb.WriteString("✅ WORKING PAYLOADS (by score, 200 first)\n")
-	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	sb.WriteString("✅ " + toBoldUnicode("WORKING PAYLOADS") + " (by score, 200 first)\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	for i, r := range working {
-		sb.WriteString(fmt.Sprintf("%d. [%s] Port:%d | %dms | Score: %d/100 | %s\n",
-			i+1, r.Method, r.Port, r.LatencyMs, r.Score, r.Quality))
-		sb.WriteString(fmt.Sprintf("Status  : %s (HTTP %d)\n", r.ResponseCode, r.StatusCode))
+		scoreBar := ""
+		barFilled := r.Score / 10
+		if barFilled > 10 {
+			barFilled = 10
+		}
+		scoreBar = strings.Repeat("🟩", barFilled) + strings.Repeat("⬜", 10-barFilled)
+
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s: %d | %dms | Score: %d/100 %s | %s\n",
+			i+1, r.Method, toBoldUnicode("Port"), r.Port, r.LatencyMs, r.Score, scoreBar, r.Quality))
+		sb.WriteString(fmt.Sprintf("   %s: %s (HTTP %d)\n", toBoldUnicode("Status"), r.ResponseCode, r.StatusCode))
 		if r.Server != "" {
-			sb.WriteString(fmt.Sprintf("Server  : %s\n", r.Server))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("Server"), r.Server))
 		}
 		if r.ContentType != "" {
-			sb.WriteString(fmt.Sprintf("Type    : %s\n", r.ContentType))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("Type"), r.ContentType))
 		}
 		if r.CFRay != "" {
-			sb.WriteString(fmt.Sprintf("CDN     : Cloudflare (CF-RAY: %s)\n", r.CFRay))
+			sb.WriteString(fmt.Sprintf("   %s: Cloudflare (CF-RAY: %s)\n", toBoldUnicode("CDN"), r.CFRay))
 		}
 		if r.Via != "" {
-			sb.WriteString(fmt.Sprintf("Via     : %s\n", r.Via))
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("Via"), r.Via))
 		}
 		if r.Retries > 0 {
-			sb.WriteString(fmt.Sprintf("Retries : %d\n", r.Retries))
+			sb.WriteString(fmt.Sprintf("   %s: %d\n", toBoldUnicode("Retries"), r.Retries))
 		}
-		sb.WriteString(fmt.Sprintf("Size    : %d bytes\n", r.ResponseSize))
-		sb.WriteString(fmt.Sprintf("Payload :\n%s\n\n", r.Payload))
+		sb.WriteString(fmt.Sprintf("   %s: %d bytes\n", toBoldUnicode("Size"), r.ResponseSize))
+		sb.WriteString(fmt.Sprintf("   %s:\n%s\n\n", toBoldUnicode("Payload"), r.Payload))
 		sb.WriteString(smartReplaceGuide(r.Payload, host, vps, sni))
-		sb.WriteString("\n────────────────────────────────────\n\n")
+		sb.WriteString("\n   ────────────────────────────────\n\n")
 	}
 
 	if len(all)-len(working) > 0 {
-		sb.WriteString(fmt.Sprintf("\n❌ FAILED PAYLOADS (%d)\n", len(all)-len(working)))
-		sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		sb.WriteString(fmt.Sprintf("\n❌ "+toBoldUnicode("FAILED PAYLOADS")+" (%d)\n", len(all)-len(working)))
+		sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		for _, r := range all {
 			if !r.IsWorking {
 				sb.WriteString(fmt.Sprintf("• %s (Port:%d)", r.Method, r.Port))
@@ -1140,6 +1157,9 @@ func buildPayloadFile(host, ip, vps, sni string, ports []int, working, all []Pay
 			}
 		}
 	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("💡 " + toBoldUnicode("Generated by PARAGON SNI PRO") + "\n")
 
 	return sb.String()
 }
