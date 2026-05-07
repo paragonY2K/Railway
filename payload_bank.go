@@ -134,7 +134,7 @@ var payloadList = []struct {
 	},
 	{
 		Name:     "Double Host WS",
-		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf][crlf]",
 	},
 	{
 		Name:     "PATCH Double Host WS",
@@ -150,11 +150,11 @@ var payloadList = []struct {
 	},
 	{
 		Name:     "Trace WS Upgrade",
-		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
 	},
 	{
 		Name:     "Trace XFF 1111 WS",
-		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf]X-Forwarded-For: 1.1.1.1[crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [vps][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf]X-Forwarded-For: 1.1.1.1[crlf][split]CF-RAY / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
 	},
 	{
 		Name:     "PATCH SSH Bypass Style",

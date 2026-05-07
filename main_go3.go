@@ -1270,6 +1270,71 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 
 	hostClean := strings.ToLower(strings.TrimSpace(host))
 
+	// ========================================================================
+	// TIER 0: FAST PATH (PORT 80/8080/8880) - Direct Plain HTTP
+	// ========================================================================
+	if port == 80 || port == 8080 || port == 8880 {
+		httpStatus, httpInfo := doHTTP(host, ip, port)
+		if httpStatus == "OK" {
+			// Set default status if empty
+			if httpInfo.HTTPStatus == "" {
+				httpInfo.HTTPStatus = "200"
+			}
+
+			// 1. Check for Redirects (Common in Port 80 bugs)
+			rawLower := strings.ToLower(httpInfo.TLSraw)
+			if strings.Contains(rawLower, "301 moved") ||
+				strings.Contains(rawLower, "302 found") ||
+				strings.Contains(rawLower, "307 temporary") {
+				// Bonus: Detect redirect location
+				if strings.Contains(rawLower, "location:") {
+					httpInfo.Server = "REDIR-" + httpInfo.Server
+				}
+				logToDisk("HTTP_REDIRECT", httpInfo, "MEDI")
+				return "MEDI", httpInfo, "HTTP_REDIRECT", "PLAIN_HTTP"
+			}
+
+			// 2. Check for WebSocket Upgrade on Port 80
+			wsOK, wsRaw := wsProbe(host, ip, port)
+			if wsOK && len(strings.TrimSpace(wsRaw)) >= 10 {
+				httpInfo.HTTPStatus = "101"
+				httpInfo.SSHWS = true
+				httpInfo.WSraw = wsRaw
+				httpInfo.Server = "WS-UPGRADE-" + httpInfo.Server
+				logToDisk("WS_VULN_PORT_80", httpInfo, "STRONG")
+				return "STRONG", httpInfo, "WS-PORT80", "PLAIN_WS"
+			}
+
+			// 3. Substantial Response (Possible BugHost)
+			if httpInfo.ContentLength > 500 && httpInfo.ContentLength < 30000 {
+				// Check for CDN signatures even on port 80
+				if strings.Contains(strings.ToUpper(httpInfo.Server), "CLOUDFLARE") ||
+					strings.Contains(strings.ToUpper(httpInfo.TLSraw), "CF-RAY") {
+					httpInfo.Server = "CDN-" + httpInfo.Server
+					logToDisk("CDN_HTTP_PORT_80", httpInfo, "STRONG")
+					return "STRONG", httpInfo, "CDN BUGHOST CONFIRMED", "PLAIN_HTTP"
+				}
+				logToDisk("HTTP_BUG_PORT_80", httpInfo, "STRONG")
+				return "STRONG", httpInfo, "HTTP BUGHOST CONFIRMED", "PLAIN_HTTP"
+			}
+
+			// 4. Small response but alive
+			if httpInfo.ContentLength > 0 {
+				logToDisk("HTTP_SMALL_PORT_80", httpInfo, "WEAK")
+				return "WEAK", httpInfo, "HTTP_SMALL_RESPONSE", "PLAIN_HTTP"
+			}
+		}
+
+		// If reach here, port is open but not "vuln" enough
+		if httpStatus == "OK" {
+			return "WEAK", httpInfo, "NONE", "PLAIN_HTTP"
+		}
+		return "WEAK", info, "NONE", "NO_RESPONSE"
+	}
+
+	// ========================================================================
+	// TIER 1: TLS HANDSHAKE & BIG TECH (PORT 443, 8443, ETC)
+	// ========================================================================
 	var tlsCached bool
 	var tlsCachedInfo tlsInfo
 	var tlsStatusCached string
@@ -1282,48 +1347,28 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 		return tlsStatusCached, tlsCachedInfo
 	}
 
-	// ==================== TIER 0: BIG TECH NATIVE (NOT BUGHOST) ====================
+	// Check Big Tech Domains (Native CDN)
 	bigTechDomains := []string{
-		"google.com", "google.co", "google.com.my",
-		"youtube.com", "youtu.be", "ytimg.com",
-		"facebook.com", "fb.com", "fbcdn.net", "instagram.com",
-		"microsoft.com", "live.com", "bing.com", "office.com", "azure.com", "azurefd.net",
-		"apple.com", "icloud.com",
-		"amazon.com", "amazonaws.com", "aws.amazon.com",
-		"twitter.com", "x.com", "twimg.com",
-		"netflix.com", "nflxvideo.net",
-		"cloudflare.com", "cloudflare.net",
-		"akamai.com", "akamaiedge.net",
-		"fastly.com", "fastly.net",
-		"ookla.com", "fuq.com",
-		"github.com", "gitlab.com",
-		"wikipedia.org", "wikimedia.org",
-		"whatsapp.com", "telegram.org", "t.me",
-		"tiktok.com", "spotify.com",
-		"yahoo.com", "ebay.com", "paypal.com",
-		"linkedin.com", "reddit.com",
+		"google.com", "youtube.com", "facebook.com", "instagram.com",
+		"microsoft.com", "azure.com", "apple.com", "amazon.com",
+		"cloudflare.com", "akamai.com", "fastly.com", "tiktok.com",
+		"whatsapp.com", "telegram.org", "netflix.com",
 	}
 
-	isBigTechNative := false
 	for _, domain := range bigTechDomains {
-		if hostClean == domain || hostClean == "www."+domain {
-			isBigTechNative = true
-			break
+		if hostClean == domain || strings.HasSuffix(hostClean, "."+domain) {
+			_, tlsInfoLocal := getTLSInfo()
+			info = tlsInfoLocal
+			if info.HTTPStatus == "" {
+				info.HTTPStatus = "200"
+			}
+			info.Server = "Big Tech Native"
+			logToDisk("BIG_TECH_NATIVE", info, "NATIVE")
+			return "NATIVE_CDN", info, "NATIVE CDN", "FAST PATH"
 		}
 	}
 
-	if isBigTechNative {
-		_, tlsInfoLocal := getTLSInfo()
-		info = tlsInfoLocal
-		if info.HTTPStatus == "" {
-			info.HTTPStatus = "200"
-		}
-		info.Server = "Big Tech Native"
-		logToDisk("BIG_TECH_NATIVE", info, "NATIVE")
-		return "NATIVE_CDN", info, "NATIVE CDN", "FAST PATH"
-	}
-
-	// ==================== TIER 1: WEB SOCKET PROBE ====================
+	// WebSocket Probe (Secure)
 	wsOK, wsRaw := wsProbe(host, ip, port)
 	if wsOK && len(strings.TrimSpace(wsRaw)) >= 10 {
 		_, tlsInfoLocal := getTLSInfo()
@@ -1331,12 +1376,11 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 		info.SSHWS = true
 		info.WSraw = wsRaw
 		info.HTTPStatus = "101"
-
 		logToDisk("WS_VULN_FOUND", info, "STRONG")
-		return "STRONG", info, "101 Switching Protocols", "TLS OK"
+		return "STRONG", info, "WS-TLS", "TLS OK"
 	}
 
-	// ==================== TIER 2: TLS & BEHAVIORAL ANALYSIS ====================
+	// Behavioral & TLS Analysis
 	tlsStatus, tlsInfoLocal := getTLSInfo()
 	info = tlsInfoLocal
 
@@ -1350,91 +1394,51 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 			info.HTTPStatus = "200"
 		}
 
-		// Custom Port Detection
-		if port != 443 && port != 80 && port != 8080 && port != 8443 && info.HTTPStatus != "000" {
-			if port > 10000 {
-				logToDisk("HIGH_PORT_BUG", info, "STRONG")
-			} else {
-				logToDisk("CUSTOM_PORT_ALIVE", info, "STRONG")
-			}
-			return "STRONG", info, "CUSTOM PORT BUG", tlsStatus
+		// Custom Port Detection (non-standard ports)
+		if port != 443 && port != 8443 && port > 10000 {
+			logToDisk("HIGH_PORT_BUG", info, "STRONG")
+			return "STRONG", info, "HIGH PORT BUG", tlsStatus
 		}
 
-		// H3 / QUIC Detection
-		isH3 := strings.Contains(alpnUpper, "H3") ||
-			(strings.Contains(rawHeaders, "ALT-SVC") && len(rawHeaders) > 50)
-		if isH3 {
-			quicVersion := ""
-			if strings.Contains(rawHeaders, "H3-29") || strings.Contains(rawHeaders, "H3-32") {
-				quicVersion = " (KNOWN QUIC VERSION)"
-			}
-			logToDisk("STRONG_H3_QUIC_FOUND", info, "STRONG")
-			return "STRONG", info, "H3 QUIC BUG" + quicVersion, tlsStatus
+		// QUIC / H3 Detection
+		if strings.Contains(alpnUpper, "H3") || (strings.Contains(rawHeaders, "ALT-SVC") && len(rawHeaders) > 50) {
+			logToDisk("STRONG_H3_QUIC", info, "STRONG")
+			return "STRONG", info, "H3 QUIC BUG", tlsStatus
 		}
 
 		// Reality Tunnel Detection
-		isTLS13 := strings.Contains(info.Cipher, "AES_256_GCM") ||
-			strings.Contains(info.Cipher, "CHACHA20") ||
-			strings.Contains(info.Cipher, "TLS_AES")
-		isBigTech := strings.Contains(info.CommonName, "google") ||
-			strings.Contains(info.CommonName, "microsoft") ||
-			strings.Contains(info.CommonName, "apple") ||
-			strings.Contains(info.CommonName, "cloudflare") ||
-			strings.Contains(info.CommonName, "facebook") ||
-			strings.Contains(info.CommonName, "twitter")
-
-		if isTLS13 && isBigTech && (info.Server == "" || info.Server == "UNKNOWN" || alpnUpper == "") {
-			logToDisk("REALITY_TUNNEL_DETECTED", info, "STRONG")
+		isTLS13 := strings.Contains(info.Cipher, "AES_256_GCM") || strings.Contains(info.Cipher, "CHACHA20") || strings.Contains(info.Cipher, "TLS_AES")
+		isBigTechCN := strings.Contains(info.CommonName, "google") || strings.Contains(info.CommonName, "microsoft") ||
+			strings.Contains(info.CommonName, "apple") || strings.Contains(info.CommonName, "cloudflare") ||
+			strings.Contains(info.CommonName, "facebook") || strings.Contains(info.CommonName, "twitter")
+		if isTLS13 && isBigTechCN && (info.Server == "" || info.Server == "UNKNOWN" || alpnUpper == "") {
+			logToDisk("REALITY_DETECTED", info, "STRONG")
 			return "STRONG", info, "REALITY TUNNEL BUG", tlsStatus
 		}
 
-		// CDN Bug Detection
-		isCDN := strings.Contains(server, "CLOUDFRONT") || strings.Contains(rawHeaders, "X-AMZ-") ||
-			strings.Contains(server, "CLOUDFLARE") || strings.Contains(rawHeaders, "CF-RAY") ||
-			strings.Contains(server, "AKAMAI") || strings.Contains(server, "AZURE") ||
-			strings.Contains(server, "GCP") || strings.Contains(server, "GOOGLE") ||
-			strings.Contains(snippetUpper, "<!DOCTYPE") || strings.Contains(snippetUpper, "<HTML")
+		// SNI Spoof Detection
+		cnClean := strings.ToLower(strings.ReplaceAll(info.CommonName, "*.", ""))
+		if info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) {
+			// SNI mismatch - potential spoof
+			if info.ContentLength > 0 && info.ContentLength < 25000 {
+				logToDisk("SNI_SPOOF_DETECTED", info, "STRONG")
+				return "STRONG", info, "SNI SPOOFABLE", tlsStatus
+			}
+		}
+
+		// CDN Logic
+		isCDN := strings.Contains(server, "CLOUDFLARE") || strings.Contains(server, "CLOUDFRONT") ||
+			strings.Contains(server, "AKAMAI") || strings.Contains(rawHeaders, "CF-RAY") ||
+			strings.Contains(rawHeaders, "X-AMZ-")
 
 		if isCDN {
-			isGenericPage := strings.Contains(snippetUpper, "APP SERVICE - ANTARES") ||
-				strings.Contains(snippetUpper, "DIRECT IP ACCESS NOT ALLOWED") ||
-				strings.Contains(snippetUpper, "SITE NOT FOUND") ||
-				strings.Contains(snippetUpper, "PAGE NOT FOUND") ||
+			isGeneric := strings.Contains(snippetUpper, "DIRECT IP ACCESS NOT ALLOWED") ||
 				strings.Contains(snippetUpper, "ERROR 404") ||
-				strings.Contains(snippetUpper, "NO SUCH SITE") ||
-				strings.Contains(snippetUpper, "BAD REQUEST") ||
-				strings.Contains(snippetUpper, "ACCESS DENIED")
-
-			maxLen := 50000
-			if strings.Contains(snippetUpper, "<!DOCTYPE") || strings.Contains(snippetUpper, "<HTML") {
-				maxLen = 5000
-			}
-
-			if !isGenericPage && info.ContentLength < maxLen {
-				if strings.Contains(server, "CLOUDFLARE") && !strings.Contains(info.CommonName, "cloudflare") {
-					logToDisk("CDN_MISMATCH_BUG", info, "STRONG")
-				} else {
-					logToDisk("CDN_BUGHOST_CONFIRMED", info, "STRONG")
-				}
+				strings.Contains(snippetUpper, "SITE NOT FOUND") ||
+				strings.Contains(snippetUpper, "BAD REQUEST")
+			if !isGeneric && info.ContentLength < 50000 {
+				logToDisk("CDN_BUGHOST_CONFIRMED", info, "STRONG")
 				return "STRONG", info, "BUGHOST CONFIRMED", tlsStatus
-			}
-		}
-
-		// SNI Spoof Candidate
-		bigTechSuffix := []string{
-			".google.com", ".googlevideo.com", ".ggpht.com", ".gstatic.com",
-			".apple.com", ".icloud.com", ".mzstatic.com",
-			".microsoft.com", ".azure.com", ".office.com", ".live.com",
-			".cloudflare.com", ".cloudflare.net",
-			".facebook.com", ".fbcdn.net",
-			".amazon.com", ".amazonaws.com", ".cloudfront.net",
-			".akamai.com", ".akamaiedge.net",
-			".twitter.com", ".twimg.com",
-			".netflix.com", ".nflxvideo.net",
-		}
-		for _, suffix := range bigTechSuffix {
-			if strings.HasSuffix(hostClean, suffix) || hostClean == strings.TrimPrefix(suffix, ".") {
-				return "POTENTIAL", info, "SNI SPOOF CANDIDATE", "BIG TECH"
 			}
 		}
 
@@ -1445,15 +1449,11 @@ func classifyWithProbes(host string, ip string, port int) (string, tlsInfo, stri
 		}
 	}
 
-	// ==================== TIER 3: HTTP BACKUP ====================
+	// FINAL FALLBACK: HTTP Backup for TLS ports that failed TLS handshake
 	httpStatus, httpInfo := doHTTP(host, ip, port)
 	if httpStatus == "OK" && httpInfo.ContentLength > 10 {
-		if strings.Contains(httpInfo.TLSraw, "301") || strings.Contains(httpInfo.TLSraw, "302") {
-			logToDisk("HTTP_REDIRECT", httpInfo, "WEAK")
-			return "WEAK", httpInfo, "HTTP REDIRECT", "PLAIN_HTTP"
-		}
-		logToDisk("HTTP_ONLY", httpInfo, "WEAK")
-		return "WEAK", httpInfo, "NONE", "PLAIN_HTTP"
+		logToDisk("HTTP_FALLBACK", httpInfo, "WEAK")
+		return "WEAK", httpInfo, "PLAIN_HTTP_FALLBACK", "PLAIN_HTTP"
 	}
 
 	logToDisk("DEAD_HOST", info, "WEAK")
@@ -3674,34 +3674,35 @@ func toBoldUnicode(s string) string {
 func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, detectType string, qualityScore int, isVulnerable bool, deepVerifyResult string, useCase string, allPorts map[int]string) string {
 	var sb strings.Builder
 
-	// Header
 	sb.WriteString("```\n")
 	sb.WriteString("╭──────────────────────────────────╮\n")
-	sb.WriteString("│  🎯 " + toBoldUnicode("PARAGON SINGLE SCAN") + "    │\n")
+	sb.WriteString("│  🎯 " + toBoldUnicode("PARAGON SINGLE SCAN") + "          │\n")
 	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
-	// Target info with bold labels
 	sb.WriteString(toBoldUnicode("Target") + "   : " + host + "\n")
 	sb.WriteString(toBoldUnicode("IP") + "       : " + ip + "\n")
 
-	// Port with all tested ports
 	if len(allPorts) > 0 {
+		var keys []int
+		for k := range allPorts {
+			keys = append(keys, k)
+		}
+		sort.Ints(keys)
+
 		var portParts []string
-		for p, status := range allPorts {
+		for _, p := range keys {
+			status := allPorts[p]
 			if p == port {
-				portParts = append(portParts, "*"+strconv.Itoa(p)+" ✓")
-			} else if status == "✓" {
-				portParts = append(portParts, strconv.Itoa(p)+" ✓")
+				portParts = append(portParts, "["+strconv.Itoa(p)+"] "+status)
 			} else {
-				portParts = append(portParts, strconv.Itoa(p)+" ✗")
+				portParts = append(portParts, strconv.Itoa(p)+" "+status)
 			}
 		}
-		sb.WriteString(toBoldUnicode("Port") + "     : " + strconv.Itoa(port) + " (" + strings.Join(portParts, ", ") + ")\n")
+		sb.WriteString(toBoldUnicode("Ports") + "    : " + strings.Join(portParts, " | ") + "\n")
 	} else {
 		sb.WriteString(toBoldUnicode("Port") + "     : " + strconv.Itoa(port) + "\n")
 	}
 
-	// Server
 	serverDisplay := info.Server
 	if serverDisplay == "" || serverDisplay == "Unknown" {
 		serverDisplay = detectCDNByIP(ip)
@@ -3711,76 +3712,57 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 	}
 	sb.WriteString(toBoldUnicode("Server") + "   : " + serverDisplay + "\n")
 
-	// HTTP Status
 	statusDisplay := info.HTTPStatus
 	if statusDisplay == "" {
 		statusDisplay = "000"
 	}
 
-	// Color indicator for HTTP status
-	httpIcon := ""
+	httpIcon := "⚪"
 	switch {
-	case statusDisplay == "200":
+	case statusDisplay == "200" || statusDisplay == "201":
 		httpIcon = "🟢"
-	case statusDisplay == "301" || statusDisplay == "302":
+	case statusDisplay == "101":
+		httpIcon = "🔥"
+	case strings.HasPrefix(statusDisplay, "3"):
 		httpIcon = "🔵"
 	case statusDisplay == "403":
 		httpIcon = "🟡"
-	case statusDisplay == "404":
-		httpIcon = "🔴"
 	case statusDisplay == "000":
 		httpIcon = "💀"
-	default:
-		httpIcon = "⚪"
 	}
 	sb.WriteString(toBoldUnicode("HTTP") + "     : " + httpIcon + " " + statusDisplay + "\n\n")
 
-	// Type with icon
 	var statusIcon, statusLabel string
 	switch detectType {
 	case "H3_QUIC":
-		statusIcon = "⚡"
-		statusLabel = "H3/QUIC BUG"
+		statusIcon, statusLabel = "⚡", "H3/QUIC BUG"
 	case "SPOOF":
-		statusIcon = "🎭"
-		statusLabel = "SNI SPOOFABLE"
-	case "WS":
-		statusIcon = "🔌"
-		statusLabel = "WEBSOCKET OPEN"
+		statusIcon, statusLabel = "🎭", "SNI SPOOFABLE"
+	case "WS", "WS-PORT80", "WS-TLS":
+		statusIcon, statusLabel = "🔌", "WEBSOCKET OPEN"
 	case "REALITY":
-		statusIcon = "🔮"
-		statusLabel = "REALITY TUNNEL"
+		statusIcon, statusLabel = "🔮", "REALITY TUNNEL"
 	case "AZURE_BNI":
-		statusIcon = "💎"
-		statusLabel = "AZURE BNI BUG"
+		statusIcon, statusLabel = "💎", "AZURE BNI BUG"
 	case "CDN_FRONT":
-		statusIcon = "☁️"
-		statusLabel = "CDN FRONTING"
+		statusIcon, statusLabel = "☁️", "CDN FRONTING"
 	case "SSH_TUNNEL":
-		statusIcon = "🔐"
-		statusLabel = "SSH TUNNEL"
+		statusIcon, statusLabel = "🔐", "SSH TUNNEL"
 	case "SLOWDNS":
-		statusIcon = "🐢"
-		statusLabel = "SLOWDNS TUNNEL"
-	case "BUGHOST CONFIRMED", "CDN_HOST":
-		statusIcon = "⚠️"
-		statusLabel = "CDN BUGHOST"
-	case "CDN_ONLY":
-		statusIcon = "📡"
-		statusLabel = "CDN DETECTED"
+		statusIcon, statusLabel = "🐢", "SLOWDNS TUNNEL"
+	case "BUGHOST CONFIRMED", "CDN_HOST", "CDN BUGHOST CONFIRMED":
+		statusIcon, statusLabel = "⚠️", "CDN BUGHOST"
+	case "HTTP BUGHOST CONFIRMED":
+		statusIcon, statusLabel = "🌐", "HTTP BUGHOST"
+	case "HTTP_REDIRECT":
+		statusIcon, statusLabel = "🔄", "HTTP REDIRECT"
 	case "HTTP_ONLY":
-		statusIcon = "🌐"
-		statusLabel = "HTTP ONLY"
-	case "PREMIUM_SNI":
-		statusIcon = "💎"
-		statusLabel = "PREMIUM SNI"
+		statusIcon, statusLabel = "🌐", "HTTP ONLY"
 	default:
 		if isVulnerable {
-			statusIcon = "🔥"
-			statusLabel = "VULNERABLE"
+			statusIcon, statusLabel = "🔥", "VULNERABLE"
 		} else {
-			statusIcon = "❌"
-			statusLabel = "NOT VULNERABLE"
+			statusIcon, statusLabel = "❌", "NOT VULNERABLE"
 		}
 	}
 
@@ -3792,30 +3774,24 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		sb.WriteString(toBoldUnicode("SNI") + "      : " + info.CommonName + "\n")
 	}
 
-	// Score with progress bar
+	scoreIcon := "🔴"
+	if qualityScore >= 80 {
+		scoreIcon = "🟢"
+	} else if qualityScore >= 50 {
+		scoreIcon = "🟡"
+	} else if qualityScore >= 30 {
+		scoreIcon = "🟠"
+	}
+
 	scoreBar := ""
-	barLen := 8
+	barLen := 10
 	filled := qualityScore * barLen / 100
 	if filled > barLen {
 		filled = barLen
 	}
-	scoreBar = "[" + strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled) + "]"
-
-	// Score color indicator
-	scoreIcon := ""
-	switch {
-	case qualityScore >= 80:
-		scoreIcon = "🟢"
-	case qualityScore >= 50:
-		scoreIcon = "🟡"
-	case qualityScore >= 30:
-		scoreIcon = "🟠"
-	default:
-		scoreIcon = "🔴"
-	}
+	scoreBar = strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
 	sb.WriteString(toBoldUnicode("Score") + "    : " + scoreIcon + " " + strconv.Itoa(qualityScore) + "/100 " + scoreBar + "\n")
 
-	// Latency
 	if info.LatencyMs > 0 {
 		latencyIcon := "⚡"
 		if info.LatencyMs > 500 {
@@ -3826,41 +3802,33 @@ func formatScanResultMarkdownV2(host string, ip string, port int, info tlsInfo, 
 		sb.WriteString(toBoldUnicode("Latency") + "  : " + latencyIcon + " " + strconv.Itoa(info.LatencyMs) + "ms\n")
 	}
 
-	// ALPN
 	if info.ALPN != "" {
 		sb.WriteString(toBoldUnicode("ALPN") + "     : " + info.ALPN + "\n")
 	}
-
-	// Cipher
 	if info.Cipher != "" && info.Cipher != "0x0000" {
 		sb.WriteString(toBoldUnicode("Cipher") + "   : " + info.Cipher + "\n")
 	}
 
-	// Content Size
 	if info.ContentLength > 0 {
-		contentDisplay := strconv.Itoa(info.ContentLength) + " bytes"
+		sizeStr := strconv.Itoa(info.ContentLength) + " bytes"
 		if info.ContentLength > 1024 {
-			contentDisplay = fmt.Sprintf("%.1f KB", float64(info.ContentLength)/1024.0)
+			sizeStr = fmt.Sprintf("%.1f KB", float64(info.ContentLength)/1024.0)
 		}
-		sb.WriteString(toBoldUnicode("Size") + "     : " + contentDisplay + "\n")
+		sb.WriteString(toBoldUnicode("Size") + "     : " + sizeStr + "\n")
 	}
 
-	// Deep Verify Result
 	if deepVerifyResult != "" {
 		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(deepVerifyResult)
 	}
-
-	// UseCase / Recommendation
 	if useCase != "" {
 		sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		sb.WriteString(useCase)
 	}
 
-	// Footer
 	sb.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	sb.WriteString("💡 " + toBoldUnicode("Enjoying PARAGON?") + " Send /feedback\n")
-	sb.WriteString("\n```")
+	sb.WriteString("```")
 
 	return sb.String()
 }
@@ -3914,12 +3882,13 @@ func executeSingleScan(chatID int64, target string) {
 		statusText := fmt.Sprintf("📡 *Paragon Engine:* `%s`\n\n⚡ *Cached Result:*", host)
 		statusMsg := tgbotapi.NewMessage(chatID, statusText)
 		statusMsg.ParseMode = "Markdown"
-		sentMsg, _ := bot.Send(statusMsg)
-
-		edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, cached)
-		edit.ParseMode = "Markdown"
-		edit.ReplyMarkup = getMainMenuKeyboard()
-		bot.Send(edit)
+		sentMsg, err := bot.Send(statusMsg)
+		if err == nil {
+			edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, cached)
+			edit.ParseMode = "Markdown"
+			edit.ReplyMarkup = getMainMenuKeyboard()
+			bot.Send(edit)
+		}
 		clearSessionState(chatID)
 		return
 	}
@@ -3930,30 +3899,24 @@ func executeSingleScan(chatID int64, target string) {
 
 	sentMsg, err := bot.Send(statusMsg)
 	if err != nil {
-		msg := tgbotapi.NewMessage(chatID, "Processing scan... please wait.")
-		sentMsg, _ = bot.Send(msg)
+		clearSessionState(chatID)
+		return
 	}
 
 	msgID := sentMsg.MessageID
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Save cancel function
 	sess := getSession(chatID)
 	sess.CancelFunc = cancel
 
 	resultChan := make(chan string, 1)
 	resultPriority := make(chan string, 1)
 	resultScore := make(chan int, 1)
-	resultUseCase := make(chan string, 1)
 
 	go func() {
 		select {
 		case <-ctx.Done():
-			resultChan <- "❌ *Scan Timeout*"
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
 			return
 		default:
 		}
@@ -3961,21 +3924,11 @@ func executeSingleScan(chatID int64, target string) {
 		updateStatus(chatID, msgID, "🔍 *Step 1:* Resolving host...")
 		ip, err := resolveIPv4(host)
 		if err != nil {
-			resultChan <- "❌ *Resolution Failed:* Host not found."
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
+			select {
+			case resultChan <- "❌ *Resolution Failed:* Host not found.":
+			default:
+			}
 			return
-		}
-
-		select {
-		case <-ctx.Done():
-			resultChan <- "❌ *Scan Timeout*"
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
-			return
-		case <-time.After(300 * time.Millisecond):
 		}
 
 		updateStatus(chatID, msgID, "📡 *Step 2:* Probing ports...")
@@ -4004,15 +3957,6 @@ func executeSingleScan(chatID int64, target string) {
 			go func(p int) {
 				defer wg.Done()
 				_, pInfo, pLabel, _ := classifyWithProbes(host, ip, p)
-
-				if p != 443 && (pInfo.HTTPStatus == "" || pInfo.HTTPStatus == "000") {
-					httpStatus, httpInfo := doHTTP(host, ip, p)
-					if httpStatus == "OK" && httpInfo.ContentLength > 0 {
-						pInfo = httpInfo
-						pLabel = "HTTP_OK"
-					}
-				}
-
 				pPriority, pScore := calculateScore(pLabel, pInfo)
 				results <- portResult{p, pInfo, pLabel, pPriority, pScore}
 			}(port)
@@ -4028,19 +3972,15 @@ func executeSingleScan(chatID int64, target string) {
 		finalPort := 0
 
 		for r := range results {
-			if r.priority == "STRONG" || r.priority == "MEDI" || r.label == "HTTP_OK" {
+			if r.priority == "STRONG" || r.priority == "MEDI" ||
+				strings.Contains(r.label, "OK") || strings.Contains(r.label, "BUGHOST") ||
+				strings.Contains(r.label, "WS") || strings.Contains(r.label, "REDIRECT") {
 				allResults[r.port] = "✓"
 			} else {
 				allResults[r.port] = "✗"
 			}
 
-			if r.priority == "STRONG" && r.score > bestScore {
-				info = r.info
-				detectLabel = r.label
-				bestPriority = r.priority
-				bestScore = r.score
-				finalPort = r.port
-			} else if bestPriority == "" || r.score > bestScore {
+			if (r.priority == "STRONG" && r.score > bestScore) || bestPriority == "" || r.score > bestScore {
 				info = r.info
 				detectLabel = r.label
 				bestPriority = r.priority
@@ -4050,7 +3990,6 @@ func executeSingleScan(chatID int64, target string) {
 		}
 
 		if finalPort == 0 {
-			updateStatus(chatID, msgID, "🔍 *Step 2b:* Checking non-HTTP protocols...")
 			for _, port := range portsToTest {
 				protoResult := detectProtocol(ip, port)
 				if protoResult.Working {
@@ -4067,165 +4006,121 @@ func executeSingleScan(chatID int64, target string) {
 		}
 
 		if finalPort == 0 {
-			resultChan <- "❌ *Unreachable:* All ports closed."
-			resultPriority <- "WEAK"
-			resultScore <- 0
-			resultUseCase <- ""
+			select {
+			case resultChan <- "❌ *Unreachable:* All ports closed.":
+			default:
+			}
 			return
 		}
 
-		updateStatus(chatID, msgID, fmt.Sprintf("🚀 *Step 3:* Analyzing best port %d...", finalPort))
+		updateStatus(chatID, msgID, fmt.Sprintf("🚀 *Step 3:* Analyzing port %d...", finalPort))
 
 		labelUpper := strings.ToUpper(detectLabel)
-		isH3 := strings.Contains(labelUpper, "H3") || strings.Contains(labelUpper, "QUIC") || strings.Contains(strings.ToUpper(info.ALPN), "H3")
-
+		isH3 := strings.Contains(labelUpper, "H3") || strings.Contains(strings.ToUpper(info.ALPN), "H3")
 		cnClean := strings.ToLower(strings.ReplaceAll(info.CommonName, "*.", ""))
-		hostClean := strings.ToLower(host)
-		isSpoof := info.CommonName != "" && !strings.Contains(hostClean, cnClean) && !strings.Contains(cnClean, hostClean) && info.HTTPStatus != "" && info.HTTPStatus != "000"
-
-		if detectLabel != "SSH_TUNNEL" && detectLabel != "SLOWDNS" && detectLabel != "HTTP_OK" {
-			if isH3 {
-				detectLabel = "H3_QUIC"
-			} else if isSpoof {
-				detectLabel = "SPOOF"
-			} else if strings.Contains(labelUpper, "WS") || strings.Contains(info.HTTPStatus, "101") {
-				detectLabel = "WS"
-			} else if strings.Contains(labelUpper, "REALITY") {
-				detectLabel = "REALITY"
-			}
-		}
+		isSpoof := info.CommonName != "" && !strings.Contains(strings.ToLower(host), cnClean) && !strings.Contains(cnClean, strings.ToLower(host))
 
 		if detectLabel == "HTTP_OK" {
 			detectLabel = "HTTP_ONLY"
 		}
+		if detectLabel == "WS-PORT80" || detectLabel == "WS-TLS" {
+			detectLabel = "WS"
+		}
 
 		priority, qualityScore := calculateScore(detectLabel, info)
 
-		if detectLabel == "SSH_TUNNEL" {
-			qualityScore = 85
-			priority = "STRONG"
+		switch detectLabel {
+		case "SSH_TUNNEL":
+			qualityScore, priority = 85, "STRONG"
+		case "SLOWDNS":
+			qualityScore, priority = 75, "STRONG"
+		case "HTTP_ONLY":
+			qualityScore, priority = 35, "WEAK"
+		case "HTTP BUGHOST CONFIRMED":
+			qualityScore, priority = 55, "MEDI"
+		case "HTTP_REDIRECT":
+			qualityScore, priority = 45, "MEDI"
+		case "CDN BUGHOST CONFIRMED":
+			detectLabel = "CDN_HOST"
+			qualityScore, priority = 65, "MEDI"
+		case "SPOOF":
+			qualityScore, priority = 80, "STRONG"
+		case "REALITY":
+			qualityScore, priority = 90, "STRONG"
 		}
-		if detectLabel == "SLOWDNS" {
-			qualityScore = 75
-			priority = "STRONG"
+
+		if isH3 && detectLabel != "WS" {
+			detectLabel = "H3_QUIC"
 		}
-		if detectLabel == "HTTP_ONLY" {
-			qualityScore = 35
-			priority = "WEAK"
+		if isSpoof && detectLabel != "WS" && detectLabel != "H3_QUIC" {
+			detectLabel = "SPOOF"
 		}
 
 		deepVerifyResult := ""
-		useCase := ""
-
-		if priority == "STRONG" {
+		if priority == "STRONG" || (priority == "MEDI" && qualityScore >= 45) {
 			updateStatus(chatID, msgID, "🔬 *Step 4:* Deep verifying connection...")
 			verified := deepVerify(host, ip, finalPort, detectLabel, info)
-
-			if verified.IsWorking && verified.QualityScore >= 50 {
-				vu := strings.ToUpper(verified.VerifiedBug)
-				switch {
-				case strings.Contains(vu, "WEBSOCKET"):
-					detectLabel = "WS"
-				case strings.Contains(vu, "HTTP/3") || strings.Contains(vu, "QUIC"):
-					detectLabel = "H3_QUIC"
-				case strings.Contains(vu, "SNI SPOOF"):
-					detectLabel = "SPOOF"
-				case strings.Contains(vu, "AZURE"):
-					detectLabel = "AZURE_BNI"
-				case strings.Contains(vu, "CDN FRONTING"):
-					detectLabel = "CDN_FRONT"
-				case strings.Contains(vu, "REALITY"):
-					detectLabel = "REALITY"
-				}
-
-				if verified.WorkingHeader != nil {
-					if sni, ok := verified.WorkingHeader["SNI"]; ok && sni != "" {
-						info.CommonName = sni
-					}
-					if hostHeader, ok := verified.WorkingHeader["Host"]; ok && hostHeader != "" {
-						info.Server = "VERIFIED-" + info.Server
-					}
-				}
-
-				qualityScore = (qualityScore + verified.QualityScore) / 2
-				if qualityScore > 100 {
-					qualityScore = 100
-				}
-
+			if verified.IsWorking {
 				deepVerifyResult = fmt.Sprintf("✅ Deep Verify : %s (%d/100)", verified.VerifiedBug, verified.QualityScore)
 				priority = "STRONG"
+				qualityScore = (qualityScore + verified.QualityScore) / 2
 			} else {
-				errorMsg := verified.ErrorMessage
-				if errorMsg == "" {
-					errorMsg = "No valid response"
-				}
-				deepVerifyResult = fmt.Sprintf("❌ Deep Verify : FAILED (%s)", errorMsg)
-				priority = "WEAK"
-				qualityScore = qualityScore / 4
-				if qualityScore < 10 {
-					qualityScore = 10
+				deepVerifyResult = fmt.Sprintf("❌ Deep Verify : FAILED (%s)", verified.ErrorMessage)
+				if priority == "STRONG" {
+					priority = "MEDI"
 				}
 			}
 		}
 
+		// FIXED: Re-integrated Recommendation Logic
 		isVulnerable := (priority == "STRONG")
-
-		if priority == "STRONG" && qualityScore >= 50 {
+		useCase := ""
+		if (priority == "STRONG" || priority == "MEDI") && qualityScore >= 45 {
 			rec := getRecommendation(host, ip, finalPort, info.Server, info.HTTPStatus, detectLabel, info)
 			useCase = formatRecommendation(host, rec)
 		}
 
 		res := formatScanResultMarkdownV2(host, ip, finalPort, info, detectLabel, qualityScore, isVulnerable, deepVerifyResult, useCase, allResults)
-
 		resultCache.Set(cacheKey, res, 5*time.Minute)
-		resultChan <- res
-		resultPriority <- priority
-		resultScore <- qualityScore
-		resultUseCase <- useCase
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			resultChan <- res
+			resultPriority <- priority
+			resultScore <- qualityScore
+		}
 	}()
 
 	select {
 	case resultText := <-resultChan:
-		finalPriority := <-resultPriority
-		finalScore := <-resultScore
+		prio := <-resultPriority
+		score := <-resultScore
 
-		var replyMarkup *tgbotapi.InlineKeyboardMarkup
-
-		if finalPriority == "STRONG" && finalScore >= 80 {
-			payloadTarget := host
+		var keyboard *tgbotapi.InlineKeyboardMarkup
+		if prio == "STRONG" || (prio == "MEDI" && score >= 45) {
+			targetData := host
 			if specifiedPort != 0 {
-				payloadTarget = fmt.Sprintf("%s:%d", host, specifiedPort)
+				targetData = fmt.Sprintf("%s:%d", host, specifiedPort)
 			}
-
-			keyboard := tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(
-						"💉 Test Payloads Here",
-						fmt.Sprintf("payload_scan:%s", payloadTarget),
-					),
-				),
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main"),
-				),
+			k := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("💉 Test Payloads", "payload_scan:"+targetData)),
+				tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main")),
 			)
-			replyMarkup = &keyboard
-
-			sess := getSession(chatID)
-			sess.TempData["payload_target"] = target
-			sess.TempData["last_scan_target"] = target
+			keyboard = &k
 		} else {
-			replyMarkup = nil
+			keyboard = getMainMenuKeyboard()
 		}
 
 		edit := tgbotapi.NewEditMessageText(chatID, msgID, resultText)
 		edit.ParseMode = "Markdown"
-		edit.ReplyMarkup = replyMarkup
+		edit.ReplyMarkup = keyboard
 		bot.Send(edit)
 
 	case <-ctx.Done():
 		updateStatus(chatID, msgID, "❌ *Scan Timeout*")
 	}
-
 	clearSessionState(chatID)
 }
 
@@ -5062,7 +4957,7 @@ func handleCallbackQuery(update tgbotapi.Update) {
 		setSessionState(chatID, "awaiting_payload_host")
 		msg := tgbotapi.NewMessage(chatID, "```\n"+
 			"╭──────────────────────────────────╮\n"+
-			"│  💉 "+toBoldUnicode("PARAGGON PAYLOAD INJECTION TESTER")+"       │\n"+
+			"│  💉 "+toBoldUnicode("PARAGON PAYLOAD INJECTION TESTER")+"       │\n"+
 			"╰──────────────────────────────────╯\n\n"+
 			toBoldUnicode("Input Format")+":\n"+
 			"  host — Basic test\n"+

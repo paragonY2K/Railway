@@ -640,10 +640,7 @@ func workerPoolTest(jobs <-chan testJob, results chan<- testResult, tracker *Pro
 func smartReplaceGuide(template string, host, vps, sni string) string {
 	var guide strings.Builder
 	guide.WriteString("Replace:\n")
-	guide.WriteString(fmt.Sprintf("  [host] → %s (or your VPS)\n", host))
-	if strings.Contains(template, "[vps]") && vps != "" {
-		guide.WriteString(fmt.Sprintf("  [vps]  → %s\n", vps))
-	}
+	guide.WriteString(fmt.Sprintf("  [host] → %s (or your bughost/VPS)\n", host))
 	if strings.Contains(template, "[sni]") && sni != "" {
 		guide.WriteString(fmt.Sprintf("  [sni]  → %s\n", sni))
 	}
@@ -655,9 +652,6 @@ func smartReplaceGuide(template string, host, vps, sni string) string {
 	}
 	if strings.Contains(template, "[split]") {
 		guide.WriteString("  [split] → double newline\n")
-	}
-	if strings.Contains(template, "[ip]") {
-		guide.WriteString("  [ip]   → Your VPS IP\n")
 	}
 	return guide.String()
 }
@@ -1113,15 +1107,27 @@ func buildPayloadFile(host, ip, vps, sni string, ports []int, working, all []Pay
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	for i, r := range working {
-		scoreBar := ""
-		barFilled := r.Score / 10
+		// CLAMP SCORE to 100
+		displayScore := r.Score
+		if displayScore > 100 {
+			displayScore = 100
+		}
+		if displayScore < 0 {
+			displayScore = 0
+		}
+
+		// Recalculate score bar with clamped score
+		barFilled := displayScore / 10
 		if barFilled > 10 {
 			barFilled = 10
 		}
-		scoreBar = strings.Repeat("🟩", barFilled) + strings.Repeat("⬜", 10-barFilled)
+		if barFilled < 0 {
+			barFilled = 0
+		}
+		scoreBar := strings.Repeat("🟩", barFilled) + strings.Repeat("⬜", 10-barFilled)
 
 		sb.WriteString(fmt.Sprintf("%d. [%s] %s: %d | %dms | Score: %d/100 %s | %s\n",
-			i+1, r.Method, toBoldUnicode("Port"), r.Port, r.LatencyMs, r.Score, scoreBar, r.Quality))
+			i+1, r.Method, toBoldUnicode("Port"), r.Port, r.LatencyMs, displayScore, scoreBar, r.Quality))
 		sb.WriteString(fmt.Sprintf("   %s: %s (HTTP %d)\n", toBoldUnicode("Status"), r.ResponseCode, r.StatusCode))
 		if r.Server != "" {
 			sb.WriteString(fmt.Sprintf("   %s: %s\n", toBoldUnicode("Server"), r.Server))
