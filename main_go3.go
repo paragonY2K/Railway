@@ -485,7 +485,7 @@ var (
 )
 
 var (
-	scanSemaphore = make(chan struct{}, 5)
+	scanSemaphore = make(chan struct{}, 20)
 )
 
 type scanCache struct {

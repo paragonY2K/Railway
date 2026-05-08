@@ -104,6 +104,10 @@ var payloadList = []struct {
 		Name:     "WS + Backend Custom",
 		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]User-Agent: [ua][crlf]Backend: @vps[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==[crlf][crlf]",
 	},
+	{
+		Name:     "CONNECT CDN Trace WS",
+		Template: "CONNECT /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf][crlf]GET-RAY / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+	},
 
 	// =============================================
 	// SERVICE BYPASS (PROVEN)

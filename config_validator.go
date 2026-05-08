@@ -850,6 +850,35 @@ func validateUserConfig(config UserConfig) FullValidation {
 	result.Steps = append(result.Steps, cdnStep)
 
 	// =============================================
+	// TARGET/VPS VERIFICATION (NEW!)
+	// =============================================
+	if config.TargetHost != "" {
+		targetStep := ValidationResult{Step: "Target/VPS Verification"}
+
+		targetConn, targetLat, targetErr := connectToHost(config.TargetHost, config.TargetPort, "")
+
+		if targetErr != nil {
+			targetStep.Success = false
+			targetStep.Message = fmt.Sprintf("❌ VPS unreachable: %s:%d — %v", config.TargetHost, config.TargetPort, targetErr)
+			targetStep.Details = "Backend target is down or fake. Config will NOT work even if proxy is alive."
+			result.Success = false
+		} else {
+			targetStep.Success = true
+			targetStep.LatencyMs = targetLat
+			targetStep.Message = fmt.Sprintf("✅ VPS reachable: %s:%d (%dms)", config.TargetHost, config.TargetPort, targetLat)
+			targetStep.Details = "Backend target is alive and reachable."
+			targetConn.Close()
+		}
+		result.Steps = append(result.Steps, targetStep)
+	} else {
+		result.Steps = append(result.Steps, ValidationResult{
+			Step:    "Target/VPS Verification",
+			Success: true,
+			Message: "⏭️ Skipped (no target host specified)",
+		})
+	}
+
+	// =============================================
 	// SMART SCORING
 	// =============================================
 	totalWeight := 0
@@ -867,6 +896,9 @@ func validateUserConfig(config UserConfig) FullValidation {
 		if s.Step == "SNI vs Certificate" && strings.Contains(s.Message, "SPOOF") {
 			weight = 2
 		}
+		if s.Step == "Target/VPS Verification" && !strings.Contains(s.Message, "Skipped") {
+			weight = 3
+		}
 
 		totalWeight += weight
 		if s.Success {
@@ -881,6 +913,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 	// Penalties
 	noPayload := true
 	sniIgnored := false
+	vpsFailed := false
 
 	for _, s := range result.Steps {
 		if s.Step == "Payload & Data Flow" && !strings.Contains(s.Message, "Skipped") {
@@ -889,6 +922,9 @@ func validateUserConfig(config UserConfig) FullValidation {
 		if strings.Contains(s.Step, "SNI IGNORED") {
 			sniIgnored = true
 		}
+		if s.Step == "Target/VPS Verification" && !s.Success && !strings.Contains(s.Message, "Skipped") {
+			vpsFailed = true
+		}
 	}
 
 	if noPayload {
@@ -896,6 +932,9 @@ func validateUserConfig(config UserConfig) FullValidation {
 	}
 	if sniIgnored {
 		result.Score -= 30
+	}
+	if vpsFailed {
+		result.Score -= 50
 	}
 
 	if result.Score > 100 {
@@ -907,6 +946,8 @@ func validateUserConfig(config UserConfig) FullValidation {
 
 	// Smart Summary
 	switch {
+	case vpsFailed:
+		result.Summary = "❌ VPS UNREACHABLE — Fix your backend target."
 	case sniIgnored:
 		result.Summary = "❌ SNI IGNORED — use port 443 for TLS/SNI testing."
 	case result.Success && result.Score >= 80 && !noPayload:
