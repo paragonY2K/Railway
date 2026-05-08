@@ -166,6 +166,13 @@ var payloadList = []struct {
 	},
 	{
 		Name:     "HDFC FLEX UAT Style",
-		Template: "GET / HTTP/1.1[crlf]Host:[host][crlf]X-Online-Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+		Template: "GET / HTTP/1.1[crlf]Host: [host][crlf]X-Online-Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]",
+	},
+	// =============================================
+	// EXTREME — SMUGGLING & DPI BYPASS
+	// =============================================
+	{
+		Name:     "Cloudflare UNLOCK Smuggling",
+		Template: "GET /cdn-cgi/trace HTTP/1.1[crlf]Host: [host][crlf][crlf][split]UNLOCK /? HTTP/1.1[crlf]Host: [host][crlf]Connection: upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf][split]UNLOCK /? HTTP/1.1[crlf]Host: [proxy][crlf]Content-Length: 999999999999[crlf]",
 	},
 }

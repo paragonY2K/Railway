@@ -646,10 +646,10 @@ func validateUserConfig(config UserConfig) FullValidation {
 	}
 
 	// =============================================
-	// PAYLOAD INJECTION
+	// PAYLOAD INJECTION (WITH DATA FLOW VERIFICATION)
 	// =============================================
 	if config.Payload != "" {
-		payloadStep := ValidationResult{Step: "Payload Injection"}
+		payloadStep := ValidationResult{Step: "Payload & Data Flow"}
 		start := time.Now()
 
 		payload := config.Payload
@@ -769,15 +769,38 @@ func validateUserConfig(config UserConfig) FullValidation {
 					payloadStep.Message = fmt.Sprintf("⚠️ Response received (%dms)", payloadStep.LatencyMs)
 				}
 			}
+
+			// =============================================
+			// DATA FLOW VERIFICATION (Conservative)
+			// =============================================
+			if payloadStep.Success {
+				bodySize := totalBytes
+				headerEnd := strings.Index(resp, "\r\n\r\n")
+				if headerEnd > 0 {
+					bodySize = totalBytes - (headerEnd + 4)
+				}
+
+				if payloadStep.StatusCode == 101 {
+					payloadStep.Details += " | 🔥 WebSocket Upgrade"
+				} else if bodySize >= 500 {
+					payloadStep.Details += fmt.Sprintf(" | ✅ Data flow: %d bytes", bodySize)
+				} else if bodySize >= 50 {
+					payloadStep.Details += fmt.Sprintf(" | ⚡ Light data: %d bytes", bodySize)
+				} else if bodySize > 0 {
+					payloadStep.Details += fmt.Sprintf(" | ⚠️ Minimal data: %d bytes", bodySize)
+				} else {
+					payloadStep.Details += " | ⚠️ Headers only (no body)"
+				}
+			}
 		} else {
 			payloadStep.Success = false
-			payloadStep.Message = "❌ No response"
+			payloadStep.Message = "❌ No response — connection may be blocked"
 			result.Success = false
 		}
 		result.Steps = append(result.Steps, payloadStep)
 	} else {
 		result.Steps = append(result.Steps, ValidationResult{
-			Step:    "Payload Injection",
+			Step:    "Payload & Data Flow",
 			Success: true,
 			Message: "⏭️ Skipped (no payload) — add payload for full test",
 		})
@@ -835,7 +858,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 	for _, s := range result.Steps {
 		weight := 1
 
-		if s.Step == "Payload Injection" && !strings.Contains(s.Message, "Skipped") {
+		if s.Step == "Payload & Data Flow" && !strings.Contains(s.Message, "Skipped") {
 			weight = 3
 		}
 		if s.Step == "TLS/SNI" {
@@ -860,7 +883,7 @@ func validateUserConfig(config UserConfig) FullValidation {
 	sniIgnored := false
 
 	for _, s := range result.Steps {
-		if s.Step == "Payload Injection" && !strings.Contains(s.Message, "Skipped") {
+		if s.Step == "Payload & Data Flow" && !strings.Contains(s.Message, "Skipped") {
 			noPayload = false
 		}
 		if strings.Contains(s.Step, "SNI IGNORED") {
