@@ -9,13 +9,158 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 // =============================================
-// DOMAIN SNIFFER - SSL CERTIFICATE EXTRACTOR
+// DOMAIN SNIFFER - SSL CERTIFICATE EXTRACTOR v2.0
+// =============================================
+
+// =============================================
+// SNI PROBE CONFIG
+// =============================================
+
+type SNIProbe struct {
+	SNI         string
+	Priority    int
+	Description string
+}
+
+var sniProbeList = []SNIProbe{
+	{SNI: "", Priority: 0, Description: "Direct"},
+	{SNI: "cloudflare.com", Priority: 1, Description: "CF Root"},
+	{SNI: "www.cloudflare.com", Priority: 1, Description: "CF WWW"},
+	{SNI: "cloudflare.net", Priority: 2, Description: "CF Net"},
+}
+
+// =============================================
+// SECTOR CLASSIFICATION
+// =============================================
+
+type SectorConfig struct {
+	Name     string
+	Icon     string
+	Keywords []string
+	Priority int
+}
+
+var sectorPatterns = []SectorConfig{
+	{
+		Name: "Banking & Finance", Icon: "🏦",
+		Keywords: []string{"bank", "finance", "pay", "payment", "loan", "mortgage", "credit", "debit", "swift", "advisor", "wealth", "capital", "invest", "trading", "forex", "merrill", "lloyds", "hsbc", "citi", "jpmorgan"},
+		Priority: 1,
+	},
+	{
+		Name: "Government & Education", Icon: "🏛️",
+		Keywords: []string{".gov", ".edu", ".mil", "government", "election", "vote", "senate", "congress", "university", "college", "school", "academy"},
+		Priority: 1,
+	},
+	{
+		Name: "Healthcare", Icon: "🏥",
+		Keywords: []string{"health", "medical", "hospital", "clinic", "pharma", "drug", "medicine", "patient", "kaiser", "doctor", "care", "healthcare"},
+		Priority: 2,
+	},
+	{
+		Name: "Technology & Dev", Icon: "🔧",
+		Keywords: []string{"api", "dev", "staging", "admin", "console", "dashboard", "cloud", "server", "host", "aws", "azure", "docker", "k8s", "kubernetes", "backend", "bff"},
+		Priority: 2,
+	},
+	{
+		Name: "E-Commerce & Retail", Icon: "🛒",
+		Keywords: []string{"shop", "store", "buy", "cart", "checkout", "order", "product", "retail", "market"},
+		Priority: 3,
+	},
+	{
+		Name: "Social & Media", Icon: "📱",
+		Keywords: []string{"social", "media", "chat", "message", "video", "stream", "photo", "image", "upload", "share", "blog"},
+		Priority: 3,
+	},
+	{
+		Name: "CDN & Infrastructure", Icon: "🌐",
+		Keywords: []string{"cdn", "static", "assets", "img", "images", "cdn-", "edge", "origin", "cache", "proxy"},
+		Priority: 4,
+	},
+	{
+		Name: "Email & Comms", Icon: "📧",
+		Keywords: []string{"mail", "email", "smtp", "imap", "webmail", "newsletter", "subscribe", "contact"},
+		Priority: 5,
+	},
+}
+
+func classifySector(domain string) (string, string) {
+	domainLower := strings.ToLower(domain)
+	for _, sector := range sectorPatterns {
+		for _, keyword := range sector.Keywords {
+			if strings.Contains(domainLower, keyword) {
+				return sector.Name, sector.Icon
+			}
+		}
+	}
+	return "Others", "📋"
+}
+
+// =============================================
+// AUTO-SLICE CONFIG
+// =============================================
+
+type ScanBatch struct {
+	ID      string
+	Prefix  string
+	Start   int
+	End     int
+	IPCount int
+	Status  string
+	Domains []string
+}
+
+const (
+	BATCH_SIZE       = 16 // 16 subnets per batch = 4,064 IPs
+	RAILWAY_WORKERS  = 200
+	NORMAL_WORKERS   = 1000
+	SNI_MODE_WORKERS = 400 // For SNI probing mode
+)
+
+func getOptimalWorkers() int {
+	if os.Getenv("RAILWAY_ENVIRONMENT") != "" || os.Getenv("RAILWAY_MODE") == "true" {
+		return RAILWAY_WORKERS
+	}
+	return NORMAL_WORKERS
+}
+
+func isSlash16(start, end int) bool {
+	return start == 0 && end == 255
+}
+
+func autoSliceToBatches(prefix string, start, end int) []ScanBatch {
+	totalSubnets := end - start + 1
+	numBatches := (totalSubnets + BATCH_SIZE - 1) / BATCH_SIZE
+
+	var batches []ScanBatch
+	for i := 0; i < numBatches; i++ {
+		batchStart := start + (i * BATCH_SIZE)
+		batchEnd := batchStart + BATCH_SIZE - 1
+		if batchEnd > end {
+			batchEnd = end
+		}
+		subnetsInBatch := batchEnd - batchStart + 1
+
+		batches = append(batches, ScanBatch{
+			ID:      fmt.Sprintf("batch_%d", i+1),
+			Prefix:  prefix,
+			Start:   batchStart,
+			End:     batchEnd,
+			IPCount: subnetsInBatch * 254,
+			Status:  "pending",
+		})
+	}
+	return batches
+}
+
+// =============================================
+// ENHANCED SNIFF WITH SNI PROBING
 // =============================================
 
 func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
@@ -48,6 +193,63 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 	}
 }
 
+// =============================================
+// ENHANCED SNIFF WITH MULTI-SNI PROBING
+// =============================================
+
+func sniffDomainsWithProbes(ip string, wg *sync.WaitGroup, results chan<- string, probeStats *sync.Map) {
+	defer wg.Done()
+
+	dialer := &net.Dialer{
+		Timeout: 5 * time.Second,
+	}
+
+	foundOnIP := make(map[string]bool)
+
+	for _, probe := range sniProbeList {
+		conf := &tls.Config{
+			ServerName:         probe.SNI,
+			InsecureSkipVerify: true,
+		}
+
+		conn, err := tls.DialWithDialer(dialer, "tcp", ip+":443", conf)
+		if err != nil {
+			continue
+		}
+
+		certs := conn.ConnectionState().PeerCertificates
+		conn.Close()
+
+		for _, cert := range certs {
+			// Common Name
+			if cert.Subject.CommonName != "" && isValidDomain(cert.Subject.CommonName) {
+				domain := cleanWildcard(cert.Subject.CommonName)
+				if !foundOnIP[domain] {
+					foundOnIP[domain] = true
+					results <- domain
+					probeStats.Store(domain, probe.Description)
+				}
+			}
+			// SANs
+			for _, san := range cert.DNSNames {
+				if isValidDomain(san) {
+					domain := cleanWildcard(san)
+					if !foundOnIP[domain] {
+						foundOnIP[domain] = true
+						results <- domain
+						probeStats.Store(domain, probe.Description)
+					}
+				}
+			}
+		}
+
+		// Stop probing if got enough domains from this IP
+		if len(foundOnIP) >= 10 {
+			break
+		}
+	}
+}
+
 func cleanWildcard(domain string) string {
 	if strings.HasPrefix(domain, "*.") {
 		return domain[2:]
@@ -75,6 +277,10 @@ func isValidDomain(s string) bool {
 	return true
 }
 
+// =============================================
+// SMART SCAN DISPATCHER
+// =============================================
+
 func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, isMultiSubnet bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -83,6 +289,166 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		}
 	}()
 
+	// Detect /16 and auto-slice
+	if isMultiSubnet && isSlash16(startRange, endRange) {
+		executeAutoSlicedScan(chatID, prefix)
+		return
+	}
+
+	// Normal scan
+	executeNormalScan(chatID, prefix, startRange, endRange, isMultiSubnet)
+}
+
+// =============================================
+// AUTO-SLICED /16 SCAN
+// =============================================
+
+func executeAutoSlicedScan(chatID int64, prefix string) {
+	batches := autoSliceToBatches(prefix, 0, 255)
+	numWorkers := getOptimalWorkers()
+
+	// Notify user
+	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
+		"⚠️ *"+toBoldUnicode("/16 RANGE DETECTED")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+			toBoldUnicode("Auto-splitting")+": %d batches\n"+
+			toBoldUnicode("Per batch")+": ~4,064 IPs\n"+
+			toBoldUnicode("Workers")+": %d (Railway-safe)\n"+
+			toBoldUnicode("Est. time")+": ~%d minit\n\n"+
+			"⏳ Starting auto-scan...",
+		len(batches), numWorkers, len(batches)*30/60))
+	statusMsg.ParseMode = "Markdown"
+	sentMsg, _ := bot.Send(statusMsg)
+
+	allDomains := make(map[string]bool)
+	probeStats := &sync.Map{}
+	var mu sync.Mutex
+	var completedBatches int64
+	startTime := time.Now()
+
+	// Progress updater
+	stopProgress := make(chan bool)
+	progressDone := make(chan bool)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				completed := atomic.LoadInt64(&completedBatches)
+				mu.Lock()
+				domainCount := len(allDomains)
+				mu.Unlock()
+
+				barLen := 10
+				filled := int(completed) * barLen / len(batches) // ← FIX!
+				if filled > barLen {
+					filled = barLen
+				}
+				bar := strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
+				elapsed := time.Since(startTime).Round(time.Second)
+
+				updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+					"🔄 *"+toBoldUnicode("AUTO-SCAN PROGRESS")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+						toBoldUnicode("Batch")+": %d/%d %s\n"+
+						toBoldUnicode("Found")+": %d domains\n"+
+						toBoldUnicode("Time")+": %v\n\n"+
+						"⏳ Auto-scan in progress...",
+					completed, len(batches), bar, domainCount, elapsed))
+			case <-stopProgress:
+				progressDone <- true
+				return
+			}
+		}
+	}()
+
+	// Process each batch
+	for _, batch := range batches {
+		batchDomains := scanSingleBatch(batch, numWorkers)
+
+		mu.Lock()
+		for _, d := range batchDomains {
+			allDomains[d] = true
+		}
+		mu.Unlock()
+
+		atomic.AddInt64(&completedBatches, 1)
+
+		// Cooldown between batches
+		time.Sleep(1 * time.Second)
+	}
+
+	// Stop progress
+	stopProgress <- true
+	<-progressDone
+
+	elapsed := time.Since(startTime).Round(time.Second)
+
+	// Sort & present results
+	var sortedDomains []string
+	for d := range allDomains {
+		sortedDomains = append(sortedDomains, d)
+	}
+	sort.Strings(sortedDomains)
+
+	// Show final result
+	showFinalResult(chatID, sentMsg.MessageID, prefix+"0.* - 255.*", 65024, sortedDomains, elapsed, probeStats)
+	clearSessionState(chatID)
+}
+
+// =============================================
+// SINGLE BATCH SCANNER
+// =============================================
+
+func scanSingleBatch(batch ScanBatch, numWorkers int) []string {
+	var wg sync.WaitGroup
+	results := make(chan string, 50000)
+	jobs := make(chan string, 1000)
+
+	// Worker pool
+	for w := 1; w <= numWorkers; w++ {
+		go func() {
+			for ip := range jobs {
+				sniffDomains(ip, &wg, results)
+			}
+		}()
+	}
+
+	// Queue IPs
+	go func() {
+		for octet := batch.Start; octet <= batch.End; octet++ {
+			for i := 1; i <= 254; i++ {
+				wg.Add(1)
+				jobs <- fmt.Sprintf("%s%d.%d", batch.Prefix, octet, i)
+			}
+		}
+		close(jobs)
+	}()
+
+	// Wait & close
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect
+	uniqueDomains := make(map[string]bool)
+	for d := range results {
+		uniqueDomains[d] = true
+	}
+
+	var domains []string
+	for d := range uniqueDomains {
+		domains = append(domains, d)
+	}
+	return domains
+}
+
+// =============================================
+// NORMAL SCAN (EXISTING BEHAVIOR)
+// =============================================
+
+func executeNormalScan(chatID int64, prefix string, startRange, endRange int, isMultiSubnet bool) {
 	umMutex.Lock()
 	if u, exists := userData.Users[chatID]; exists {
 		u.Scans++
@@ -93,13 +459,14 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	var totalIPs int
 	var targetLabel string
 	var wg sync.WaitGroup
+	numWorkers := getOptimalWorkers()
 
 	results := make(chan string, 50000)
 	uniqueDomains := make(map[string]bool)
+	probeStats := &sync.Map{}
 	var mu sync.Mutex
 	startTime := time.Now()
 
-	// 1. Tentukan Total IPs & Label
 	if isMultiSubnet {
 		totalSubnets := endRange - startRange + 1
 		totalIPs = totalSubnets * 254
@@ -109,9 +476,7 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		targetLabel = fmt.Sprintf("%s%d - %d", prefix, startRange, endRange)
 	}
 
-	// 2. WORKER POOL SETUP
 	jobs := make(chan string, 1000)
-	numWorkers := 1000
 
 	for w := 1; w <= numWorkers; w++ {
 		go func() {
@@ -121,7 +486,6 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		}()
 	}
 
-	// 3. Queue jobs
 	go func() {
 		if isMultiSubnet {
 			for octet := startRange; octet <= endRange; octet++ {
@@ -139,17 +503,15 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		close(jobs)
 	}()
 
-	// 4. Status message
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
-		"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
-			"Target: `%s`\n"+
-			"Workers: %d | IPs: %d\n\n"+
+		"🔎 *"+toBoldUnicode("IP LOOKUP")+"*\n━━━━━━━━━━━━━━━━━━━━\n"+
+			toBoldUnicode("Target")+": `%s`\n"+
+			toBoldUnicode("Workers")+": %d | "+toBoldUnicode("IPs")+": %d\n\n"+
 			"⏳ Scanning...",
 		targetLabel, numWorkers, totalIPs))
 	statusMsg.ParseMode = "Markdown"
 	sentMsg, _ := bot.Send(statusMsg)
 
-	// 5. Progress tracker (update setiap 8 saat)
 	done := make(chan bool)
 	go func() {
 		ticker := time.NewTicker(8 * time.Second)
@@ -162,7 +524,7 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 				mu.Unlock()
 				elapsed := time.Since(startTime).Round(time.Second)
 				updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
-					"🔎 *DOMAIN SNIFF*\n━━━━━━━━━━━━━━━━━━━━\n"+
+					"🔎 *"+toBoldUnicode("REVERSE IP LOOKUP")+"*\n━━━━━━━━━━━━━━━━━━━━\n"+
 						toBoldUnicode("Target")+": `%s`\n"+
 						toBoldUnicode("Workers")+": %d | "+toBoldUnicode("IPs")+": %d\n"+
 						toBoldUnicode("Found")+": %d domains\n"+
@@ -175,13 +537,11 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		}
 	}()
 
-	// 6. Close results bila semua siap
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// 7. Collect unique domains
 	for domain := range results {
 		mu.Lock()
 		if !uniqueDomains[domain] {
@@ -190,9 +550,7 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 		mu.Unlock()
 	}
 
-	// Stop progress tracker
 	close(done)
-
 	elapsed := time.Since(startTime).Round(time.Second)
 
 	var sortedDomains []string
@@ -201,10 +559,19 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	}
 	sort.Strings(sortedDomains)
 
+	showFinalResult(chatID, sentMsg.MessageID, targetLabel, totalIPs, sortedDomains, elapsed, probeStats)
+	clearSessionState(chatID)
+}
+
+// =============================================
+// ENHANCED RESULT DISPLAY WITH SECTORS
+// =============================================
+
+func showFinalResult(chatID int64, messageID int, targetLabel string, totalIPs int, sortedDomains []string, elapsed time.Duration, probeStats *sync.Map) {
 	var sb strings.Builder
 	sb.WriteString("```\n")
 	sb.WriteString("╭──────────────────────────────────╮\n")
-	sb.WriteString("│  🔎 " + toBoldUnicode("PARAGON DOMAIN SNIFF RESULT") + "           │\n")
+	sb.WriteString("│  🔎 " + toBoldUnicode("PARAGON REVERSE IP LOOKUP") + "           │\n")
 	sb.WriteString("╰──────────────────────────────────╯\n\n")
 
 	sb.WriteString(toBoldUnicode("Target") + " : " + targetLabel + "\n")
@@ -216,27 +583,58 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	if len(sortedDomains) == 0 {
 		sb.WriteString("❌ " + toBoldUnicode("No domains found.") + "\n")
 	} else {
-		sb.WriteString("📋 " + toBoldUnicode("Discovered Domains") + ":\n\n")
-		limit := 30
-		if len(sortedDomains) < limit {
-			limit = len(sortedDomains)
+		// Group by sector
+		sectorGroups := make(map[string][]string)
+		sectorIcons := make(map[string]string)
+
+		for _, domain := range sortedDomains {
+			sectorName, sectorIcon := classifySector(domain)
+			sectorGroups[sectorName] = append(sectorGroups[sectorName], domain)
+			sectorIcons[sectorName] = sectorIcon
 		}
-		for i := 0; i < limit; i++ {
-			icon := "🔹"
-			if strings.Contains(sortedDomains[i], "cdn") {
-				icon = "☁️"
-			} else if strings.Contains(sortedDomains[i], "mail") {
-				icon = "📧"
-			} else if strings.Contains(sortedDomains[i], "api") {
-				icon = "⚡"
-			} else if strings.Contains(sortedDomains[i], "www") {
-				icon = "🌐"
+
+		// Sort sectors by priority
+		type sectorResult struct {
+			Name     string
+			Icon     string
+			Domains  []string
+			Priority int
+		}
+		var sectors []sectorResult
+		for name, domains := range sectorGroups {
+			priority := 99
+			for _, sp := range sectorPatterns {
+				if sp.Name == name {
+					priority = sp.Priority
+					break
+				}
 			}
-			sb.WriteString(fmt.Sprintf("  %s %d. %s\n", icon, i+1, sortedDomains[i]))
+			sectors = append(sectors, sectorResult{
+				Name:     name,
+				Icon:     sectorIcons[name],
+				Domains:  domains,
+				Priority: priority,
+			})
 		}
-		if len(sortedDomains) > limit {
-			sb.WriteString(fmt.Sprintf("\n  ... and %d more\n", len(sortedDomains)-limit))
-			sb.WriteString("  📄 " + toBoldUnicode("Full list sent as file below") + "\n")
+		sort.Slice(sectors, func(i, j int) bool {
+			return sectors[i].Priority < sectors[j].Priority
+		})
+
+		// Display with sectors
+		for _, sector := range sectors {
+			sb.WriteString(fmt.Sprintf("\n%s "+toBoldUnicode("%s")+" (%d):\n",
+				sector.Icon, sector.Name, len(sector.Domains)))
+
+			limit := 5
+			if len(sector.Domains) < limit {
+				limit = len(sector.Domains)
+			}
+			for i := 0; i < limit; i++ {
+				sb.WriteString(fmt.Sprintf("   • %s\n", sector.Domains[i]))
+			}
+			if len(sector.Domains) > limit {
+				sb.WriteString(fmt.Sprintf("   ... +%d more\n", len(sector.Domains)-limit))
+			}
 		}
 	}
 
@@ -244,13 +642,18 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 	sb.WriteString("💡 " + toBoldUnicode("Use /scan <domain> to test") + "\n")
 	sb.WriteString("```")
 
-	editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, sb.String())
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, sb.String())
 	editMsg.ParseMode = "Markdown"
 	editMsg.ReplyMarkup = getMainMenuOnlyKeyboard()
 	bot.Send(editMsg)
 
+	// Save to file
 	if len(sortedDomains) > 0 {
-		fileName := fmt.Sprintf("sniff_%s_%d.txt", strings.ReplaceAll(prefix, ".", "_"), time.Now().Unix())
+		fileName := fmt.Sprintf("sniff_%s_%d.txt",
+			strings.ReplaceAll(
+				strings.ReplaceAll(targetLabel, " ", "_"),
+				".", "_"),
+			time.Now().Unix())
 		content := strings.Join(sortedDomains, "\n")
 		err := os.WriteFile(fileName, []byte(content), 0644)
 		if err == nil {
@@ -262,9 +665,11 @@ func executeTLSSniffer(chatID int64, prefix string, startRange, endRange int, is
 			os.Remove(fileName)
 		}
 	}
-
-	clearSessionState(chatID)
 }
+
+// =============================================
+// INPUT HANDLER
+// =============================================
 
 func handleSnifferInput(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
@@ -282,14 +687,15 @@ func handleSnifferInput(update tgbotapi.Update) {
 	if len(parts) < 1 {
 		msg := tgbotapi.NewMessage(chatID, "```\n"+
 			"╭──────────────────────────────────╮\n"+
-			"│  🔎 "+toBoldUnicode("PARAGON DOMAIN SNIFF")+"                    │\n"+
+			"│  🔎 "+toBoldUnicode("PARAGON REVERSE IP LOOKUP")+"                    │\n"+
 			"╰──────────────────────────────────╯\n\n"+
 			toBoldUnicode("Format")+": prefix start end\n\n"+
 			"📋 "+toBoldUnicode("Examples")+":\n"+
 			"  104.16.132. 1 254  → Single subnet\n"+
 			"  104.16. 132 135    → /22 (4 subnets)\n"+
-			"  104.16. 0 255      → /16 (65K IPs!)\n\n"+
-			"💡 Just prefix only = auto 0-255\n"+
+			"  104.16. 0 255      → /16 (Auto-sliced!)\n\n"+
+			"⚡ "+toBoldUnicode("NEW")+": /16 auto-sliced to 16 batches\n"+
+			"⚡ "+toBoldUnicode("NEW")+": Results grouped by sector\n"+
 			"```")
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = getCancelKeyboard()
@@ -305,7 +711,6 @@ func handleSnifferInput(update tgbotapi.Update) {
 	octets := strings.Split(strings.TrimSuffix(prefix, "."), ".")
 
 	if len(octets) == 2 {
-		// Multi subnet: 104.16. 0 255
 		startOctet := 0
 		endOctet := 255
 
@@ -326,7 +731,6 @@ func handleSnifferInput(update tgbotapi.Update) {
 	}
 
 	if len(octets) == 3 {
-		// Single subnet: 104.16.132. 1 254
 		startIP := 1
 		endIP := 254
 

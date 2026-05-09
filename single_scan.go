@@ -647,6 +647,7 @@ func executeSingleScan(chatID int64, target string) {
 		score := <-resultScore
 
 		var keyboard *tgbotapi.InlineKeyboardMarkup
+
 		if prio == "STRONG" || (prio == "MEDI" && score >= 45) {
 			targetData := host
 			if specifiedPort != 0 {
@@ -658,7 +659,11 @@ func executeSingleScan(chatID int64, target string) {
 			)
 			keyboard = &k
 		} else {
-			keyboard = getMainMenuKeyboard()
+			// WEAK/FAILED — Main Menu ONLY
+			k := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("🏠 Main Menu", "menu_main")),
+			)
+			keyboard = &k
 		}
 
 		edit := tgbotapi.NewEditMessageText(chatID, msgID, resultText)
