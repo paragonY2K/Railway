@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"sort"
@@ -308,7 +307,7 @@ func executeAutoSlicedScan(chatID int64, prefix string) {
 	batches := autoSliceToBatches(prefix, 0, 255)
 	numWorkers := getOptimalWorkers()
 
-	// Notify user
+	// Status message
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
 		"⚠️ *"+toBoldUnicode("/16 RANGE DETECTED")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
 			toBoldUnicode("Auto-splitting")+": %d batches\n"+
@@ -326,53 +325,31 @@ func executeAutoSlicedScan(chatID int64, prefix string) {
 	var completedBatches int64
 	startTime := time.Now()
 
-	// Progress updater
-	stopProgress := make(chan bool)
-	progressDone := make(chan bool)
-
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				completed := atomic.LoadInt64(&completedBatches)
-				mu.Lock()
-				domainCount := len(allDomains)
-				mu.Unlock()
-
-				barLen := 10
-				filled := int(completed) * barLen / len(batches)
-				if filled > barLen {
-					filled = barLen
-				}
-				bar := strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
-				elapsed := time.Since(startTime).Round(time.Second)
-
-				updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
-					"🔄 *"+toBoldUnicode("AUTO-SCAN PROGRESS")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-						toBoldUnicode("Batch")+": %d/%d %s\n"+
-						toBoldUnicode("Found")+": %d domains\n"+
-						toBoldUnicode("Time")+": %v\n\n"+
-						"⏳ Auto-scan in progress...",
-					completed, len(batches), bar, domainCount, elapsed))
-			case <-stopProgress:
-				progressDone <- true
-				return
-			}
-		}
-	}()
-
 	// Process each batch
 	for i, batch := range batches {
 		// Update status BEFORE each batch
+		completed := atomic.LoadInt64(&completedBatches)
+		barLen := 10
+		filled := int(completed) * barLen / len(batches)
+		if filled > barLen {
+			filled = barLen
+		}
+		bar := strings.Repeat("🟩", filled) + strings.Repeat("⬜", barLen-filled)
+
+		mu.Lock()
+		domainCount := len(allDomains)
+		mu.Unlock()
+
 		updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
 			"🔄 *"+toBoldUnicode("AUTO-SCAN")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
-				"🔍 Scanning batch %d/%d...\n"+
-				"   Range: %s%d.* - %d.*\n"+
-				"   IPs: %d\n\n"+
-				"⏳ Please wait...",
-			i+1, len(batches), prefix, batch.Start, batch.End, batch.IPCount))
+				"🔍 "+toBoldUnicode("Batch")+" %d/%d: %s%d.* - %d.*\n"+
+				"📊 "+toBoldUnicode("Progress")+": %s\n"+
+				"💎 "+toBoldUnicode("Found")+": %d domains\n"+
+				"⏱️ "+toBoldUnicode("Time")+": %v\n\n"+
+				"⏳ Scanning...",
+			i+1, len(batches), prefix, batch.Start, batch.End,
+			bar, domainCount,
+			time.Since(startTime).Round(time.Second)))
 
 		batchDomains := scanSingleBatch(batch, numWorkers)
 
@@ -380,24 +357,24 @@ func executeAutoSlicedScan(chatID int64, prefix string) {
 		for _, d := range batchDomains {
 			allDomains[d] = true
 		}
-		batchCount := len(batchDomains)
 		mu.Unlock()
 
 		atomic.AddInt64(&completedBatches, 1)
 
-		// Log batch result
-		log.Printf("📊 Batch %d/%d done: %d domains found (total: %d)",
-			i+1, len(batches), batchCount, len(allDomains))
-
 		// Cooldown between batches
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	// Stop progress
-	stopProgress <- true
-	<-progressDone
-
 	elapsed := time.Since(startTime).Round(time.Second)
+
+	// Final status
+	updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+		"✅ *"+toBoldUnicode("SCAN COMPLETE")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+			"📊 "+toBoldUnicode("Batches")+": %d/%d done\n"+
+			"💎 "+toBoldUnicode("Domains")+": %d found\n"+
+			"⏱️ "+toBoldUnicode("Time")+": %v\n\n"+
+			"📋 Preparing results...",
+		len(batches), len(batches), len(allDomains), elapsed))
 
 	// Sort & present results
 	var sortedDomains []string
