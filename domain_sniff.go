@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"sort"
@@ -125,9 +126,9 @@ const (
 
 func getOptimalWorkers() int {
 	if os.Getenv("RAILWAY_ENVIRONMENT") != "" || os.Getenv("RAILWAY_MODE") == "true" {
-		return RAILWAY_WORKERS
+		return 300 // ← 200 → 300 (masih safe!)
 	}
-	return NORMAL_WORKERS
+	return 1000
 }
 
 func isSlash16(start, end int) bool {
@@ -167,7 +168,7 @@ func sniffDomains(ip string, wg *sync.WaitGroup, results chan<- string) {
 	defer wg.Done()
 
 	dialer := &net.Dialer{
-		Timeout: 5 * time.Second,
+		Timeout: 3 * time.Second, // ← 5s → 3s!
 	}
 
 	conf := &tls.Config{
@@ -341,7 +342,7 @@ func executeAutoSlicedScan(chatID int64, prefix string) {
 				mu.Unlock()
 
 				barLen := 10
-				filled := int(completed) * barLen / len(batches) // ← FIX!
+				filled := int(completed) * barLen / len(batches)
 				if filled > barLen {
 					filled = barLen
 				}
@@ -363,16 +364,30 @@ func executeAutoSlicedScan(chatID int64, prefix string) {
 	}()
 
 	// Process each batch
-	for _, batch := range batches {
+	for i, batch := range batches {
+		// Update status BEFORE each batch
+		updateStatus(chatID, sentMsg.MessageID, fmt.Sprintf(
+			"🔄 *"+toBoldUnicode("AUTO-SCAN")+"*\n━━━━━━━━━━━━━━━━━━━━\n\n"+
+				"🔍 Scanning batch %d/%d...\n"+
+				"   Range: %s%d.* - %d.*\n"+
+				"   IPs: %d\n\n"+
+				"⏳ Please wait...",
+			i+1, len(batches), prefix, batch.Start, batch.End, batch.IPCount))
+
 		batchDomains := scanSingleBatch(batch, numWorkers)
 
 		mu.Lock()
 		for _, d := range batchDomains {
 			allDomains[d] = true
 		}
+		batchCount := len(batchDomains)
 		mu.Unlock()
 
 		atomic.AddInt64(&completedBatches, 1)
+
+		// Log batch result
+		log.Printf("📊 Batch %d/%d done: %d domains found (total: %d)",
+			i+1, len(batches), batchCount, len(allDomains))
 
 		// Cooldown between batches
 		time.Sleep(1 * time.Second)
@@ -504,7 +519,7 @@ func executeNormalScan(chatID int64, prefix string, startRange, endRange int, is
 	}()
 
 	statusMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
-		"🔎 *"+toBoldUnicode("IP LOOKUP")+"*\n━━━━━━━━━━━━━━━━━━━━\n"+
+		"🔎 *"+toBoldUnicode("REVERSE IP LOOKUP")+"*\n━━━━━━━━━━━━━━━━━━━━\n"+
 			toBoldUnicode("Target")+": `%s`\n"+
 			toBoldUnicode("Workers")+": %d | "+toBoldUnicode("IPs")+": %d\n\n"+
 			"⏳ Scanning...",
