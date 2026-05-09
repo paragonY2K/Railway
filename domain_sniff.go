@@ -397,7 +397,7 @@ func scanSingleBatch(batch ScanBatch, numWorkers int) []string {
 	results := make(chan string, 50000)
 	jobs := make(chan string, 1000)
 
-	// Worker pool
+	// Worker pool — START DULU!
 	for w := 1; w <= numWorkers; w++ {
 		go func() {
 			for ip := range jobs {
@@ -406,22 +406,18 @@ func scanSingleBatch(batch ScanBatch, numWorkers int) []string {
 		}()
 	}
 
-	// Queue IPs
-	go func() {
-		for octet := batch.Start; octet <= batch.End; octet++ {
-			for i := 1; i <= 254; i++ {
-				wg.Add(1)
-				jobs <- fmt.Sprintf("%s%d.%d", batch.Prefix, octet, i)
-			}
+	// Queue IPs — WAITGROUP ADD BEFORE SEND!
+	for octet := batch.Start; octet <= batch.End; octet++ {
+		for i := 1; i <= 254; i++ {
+			wg.Add(1)
+			jobs <- fmt.Sprintf("%s%d.%d", batch.Prefix, octet, i)
 		}
-		close(jobs)
-	}()
+	}
+	close(jobs)
 
-	// Wait & close
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	// Wait & close results
+	wg.Wait()
+	close(results)
 
 	// Collect
 	uniqueDomains := make(map[string]bool)
