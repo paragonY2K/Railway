@@ -571,7 +571,6 @@ func showFinalResult(chatID int64, messageID int, targetLabel string, totalIPs i
 	if len(sortedDomains) == 0 {
 		sb.WriteString("❌ " + toBoldUnicode("No domains found.") + "\n")
 	} else {
-		// Group by sector
 		sectorGroups := make(map[string][]string)
 		sectorIcons := make(map[string]string)
 
@@ -581,7 +580,6 @@ func showFinalResult(chatID int64, messageID int, targetLabel string, totalIPs i
 			sectorIcons[sectorName] = sectorIcon
 		}
 
-		// Sort sectors by priority
 		type sectorResult struct {
 			Name     string
 			Icon     string
@@ -608,10 +606,12 @@ func showFinalResult(chatID int64, messageID int, targetLabel string, totalIPs i
 			return sectors[i].Priority < sectors[j].Priority
 		})
 
-		// Display with sectors
 		for _, sector := range sectors {
-			sb.WriteString(fmt.Sprintf("\n%s "+toBoldUnicode("%s")+" (%d):\n",
-				sector.Icon, sector.Name, len(sector.Domains)))
+			sectorHeader := fmt.Sprintf("\n%s %s (%d):\n",
+				sector.Icon,
+				toBoldUnicode(sector.Name),
+				len(sector.Domains))
+			sb.WriteString(sectorHeader)
 
 			limit := 5
 			if len(sector.Domains) < limit {
@@ -635,7 +635,6 @@ func showFinalResult(chatID int64, messageID int, targetLabel string, totalIPs i
 	editMsg.ReplyMarkup = getMainMenuOnlyKeyboard()
 	bot.Send(editMsg)
 
-	// Save to file
 	if len(sortedDomains) > 0 {
 		fileName := fmt.Sprintf("sniff_%s_%d.txt",
 			strings.ReplaceAll(
