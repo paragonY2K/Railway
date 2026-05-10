@@ -250,6 +250,71 @@ func sniffDomainsWithProbes(ip string, wg *sync.WaitGroup, results chan<- string
 	}
 }
 
+func sniffDomainsAuto(ip string, wg *sync.WaitGroup, results chan<- string) {
+	defer wg.Done()
+
+	dialer := &net.Dialer{Timeout: 3 * time.Second}
+
+	// Try DIRECT first (no SNI)
+	conf := &tls.Config{InsecureSkipVerify: true}
+	conn, err := tls.DialWithDialer(dialer, "tcp", ip+":443", conf)
+	if err == nil {
+		certs := conn.ConnectionState().PeerCertificates
+		conn.Close()
+
+		found := 0
+		for _, cert := range certs {
+			if cert.Subject.CommonName != "" && isValidDomain(cert.Subject.CommonName) {
+				results <- cleanWildcard(cert.Subject.CommonName)
+				found++
+			}
+			for _, domain := range cert.DNSNames {
+				if isValidDomain(domain) {
+					results <- cleanWildcard(domain)
+					found++
+				}
+			}
+		}
+
+		if found > 0 {
+			return // Direct worked!
+		}
+	}
+
+	// Direct failed — try global SNI probes
+	globalProbes := []string{
+		"cloudflare.com",
+		"cloudfront.net",
+		"akamai.com",
+		"fastly.net",
+	}
+
+	for _, sni := range globalProbes {
+		conf := &tls.Config{
+			ServerName:         sni,
+			InsecureSkipVerify: true,
+		}
+		conn, err := tls.DialWithDialer(dialer, "tcp", ip+":443", conf)
+		if err != nil {
+			continue
+		}
+
+		certs := conn.ConnectionState().PeerCertificates
+		conn.Close()
+
+		for _, cert := range certs {
+			if cert.Subject.CommonName != "" && isValidDomain(cert.Subject.CommonName) {
+				results <- cleanWildcard(cert.Subject.CommonName)
+			}
+			for _, domain := range cert.DNSNames {
+				if isValidDomain(domain) {
+					results <- cleanWildcard(domain)
+				}
+			}
+		}
+	}
+}
+
 func cleanWildcard(domain string) string {
 	if strings.HasPrefix(domain, "*.") {
 		return domain[2:]
@@ -397,16 +462,16 @@ func scanSingleBatch(batch ScanBatch, numWorkers int) []string {
 	results := make(chan string, 50000)
 	jobs := make(chan string, 1000)
 
-	// Worker pool — START DULU!
+	// Worker pool — guna sniffDomainsAuto
 	for w := 1; w <= numWorkers; w++ {
 		go func() {
 			for ip := range jobs {
-				sniffDomains(ip, &wg, results)
+				sniffDomainsAuto(ip, &wg, results)
 			}
 		}()
 	}
 
-	// Queue IPs — WAITGROUP ADD BEFORE SEND!
+	// Queue IPs
 	for octet := batch.Start; octet <= batch.End; octet++ {
 		for i := 1; i <= 254; i++ {
 			wg.Add(1)
@@ -415,7 +480,6 @@ func scanSingleBatch(batch ScanBatch, numWorkers int) []string {
 	}
 	close(jobs)
 
-	// Wait & close results
 	wg.Wait()
 	close(results)
 
@@ -469,7 +533,7 @@ func executeNormalScan(chatID int64, prefix string, startRange, endRange int, is
 	for w := 1; w <= numWorkers; w++ {
 		go func() {
 			for ip := range jobs {
-				sniffDomains(ip, &wg, results)
+				sniffDomainsAuto(ip, &wg, results)
 			}
 		}()
 	}
